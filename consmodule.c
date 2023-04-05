@@ -249,12 +249,47 @@ Cons_repr(PyObject *self)
         goto error;
     }
     Py_ReprLeave(self);
+    Py_DECREF(cons);
     return _PyUnicodeWriter_Finish(&writer);
 
 error:
     _PyUnicodeWriter_Dealloc(&writer);
     Py_ReprLeave(self);
+    Py_DECREF(cons);
     return NULL;
+}
+
+PyObject *
+Cons_richcompare(PyObject *self, PyObject *other, int op)
+{
+    consmodule_state *state = PyType_GetModuleState(Py_TYPE(self));
+    if (state == NULL) {
+        return NULL;
+    }
+
+    PyTypeObject *cons = (PyTypeObject *)state->ConsType;
+    Py_INCREF(cons);
+    if (!Py_IS_TYPE(other, cons)) {
+        Py_RETURN_FALSE;
+    }
+
+    PyObject *this = self, *that = other;
+    while (Py_IS_TYPE(this, cons) && Py_IS_TYPE(that, cons)) {
+        switch (PyObject_RichCompareBool(((ConsObject *)this)->head,
+                                         ((ConsObject *)that)->head, op)) {
+            case -1:
+                Py_DECREF(cons);
+                return NULL;
+            case 0:
+                Py_DECREF(cons);
+                Py_RETURN_FALSE;
+            case 1:
+                this = ((ConsObject *)this)->tail;
+                that = ((ConsObject *)that)->tail;
+        }
+    }
+    Py_DECREF(cons);
+    Py_RETURN_RICHCOMPARE(this, that, op);
 }
 
 static PyMemberDef Cons_members[] = {
@@ -273,9 +308,16 @@ static PyMethodDef Cons_methods[] = {
 PyDoc_STRVAR(cons_doc, "Construct a new immutable pair");
 
 static PyType_Slot Cons_Type_Slots[] = {
-    {Py_tp_doc, (void *)cons_doc}, {Py_tp_dealloc, Cons_dealloc},   {Py_tp_new, Cons_new},
-    {Py_tp_members, Cons_members}, {Py_tp_traverse, Cons_traverse}, {Py_tp_clear, Cons_clear},
-    {Py_tp_repr, Cons_repr},       {Py_tp_methods, Cons_methods},   {0, NULL},
+    {Py_tp_doc, (void *)cons_doc},
+    {Py_tp_dealloc, Cons_dealloc},
+    {Py_tp_new, Cons_new},
+    {Py_tp_members, Cons_members},
+    {Py_tp_traverse, Cons_traverse},
+    {Py_tp_clear, Cons_clear},
+    {Py_tp_repr, Cons_repr},
+    {Py_tp_methods, Cons_methods},
+    {Py_tp_richcompare, Cons_richcompare},
+    {0, NULL},
 };
 
 static PyType_Spec Cons_Type_Spec = {

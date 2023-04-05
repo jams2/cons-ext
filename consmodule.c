@@ -46,18 +46,21 @@ Nil_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     return self;
 }
 
+static int
+Nil_bool(PyObject *self)
+{
+    return 0;
+}
+
 PyDoc_STRVAR(Nil_doc, "Get the singleton nil object");
 
 static PyType_Slot Nil_Type_Slots[] = {
-    {Py_tp_doc, (void *)Nil_doc},
-    {Py_tp_new, Nil_new},
-    {Py_tp_repr, Nil_repr},
-    {Py_tp_traverse, Nil_traverse},
-    {0, NULL},
+    {Py_tp_doc, (void *)Nil_doc},   {Py_tp_new, Nil_new},   {Py_tp_repr, Nil_repr},
+    {Py_tp_traverse, Nil_traverse}, {Py_nb_bool, Nil_bool}, {0, NULL},
 };
 
 static PyType_Spec Nil_Type_Spec = {
-    .name = "cons.nil",
+    .name = "fastcons.nil",
     .basicsize = sizeof(NilObject),
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE,
     .slots = Nil_Type_Slots,
@@ -270,7 +273,7 @@ static PyType_Slot Cons_Type_Slots[] = {
 };
 
 static PyType_Spec Cons_Type_Spec = {
-    .name = "cons.cons",
+    .name = "fastcons.cons",
     .basicsize = sizeof(ConsObject),
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HAVE_GC,
     .slots = Cons_Type_Slots,
@@ -333,7 +336,7 @@ consmodule_clear(PyObject *m)
 
 static struct PyModuleDef consmodule = {
     PyModuleDef_HEAD_INIT,
-    .m_name = "cons",
+    .m_name = "fastcons",
     .m_doc = "Module exporting cons type",
     .m_size = sizeof(consmodule_state),
     .m_methods = NULL,
@@ -343,7 +346,7 @@ static struct PyModuleDef consmodule = {
 };
 
 PyMODINIT_FUNC
-PyInit_cons(void)
+PyInit_fastcons(void)
 {
     return PyModuleDef_Init(&consmodule);
 }

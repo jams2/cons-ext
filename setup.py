@@ -5,7 +5,7 @@ def main():
     setup(
         name="cons",
         version="0.1.0",
-        ext_modules=[Extension("cons", ["consmodule.c"])],
+        ext_modules=[Extension("fastcons", ["consmodule.c"])],
     )
 
 

@@ -1,0 +1,38 @@
+[project]
+name = "fastcons"
+version = "0.1.0"
+authors = [
+    {name = "Joshua Munn", email = "public@elysee-munn.family"},
+]
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+exclude = ["measure", "tests"]
+
+[project.optional-dependencies]
+test = ["pytest == 7.2.2"]
+dev = [
+    "black ~= 23.1.0",
+    "ruff ~= 0.0.256",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+select = [
+  "E",   # pycodestyle
+  "F",   # pyflakes
+  "UP",  # pyupgrade
+  "I",   # isort
+  "ARG", # unused arguments
+  "PT",  # pytest style
+  "T10", # flake8-debugger
+  "C4",  # flake8-comprehensions
+]

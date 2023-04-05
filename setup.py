@@ -1,13 +1,11 @@
-from distutils.core import setup, Extension
+from setuptools import Extension, setup
 
 
-def main():
-    setup(
-        name="cons",
-        version="0.1.0",
-        ext_modules=[Extension("fastcons", ["consmodule.c"])],
-    )
-
-
-if __name__ == "__main__":
-    main()
+setup(
+    ext_modules=[
+        Extension(
+            name="fastcons",
+            sources=["consmodule.c"],
+        )
+    ]
+)

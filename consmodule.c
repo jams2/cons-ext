@@ -74,16 +74,10 @@ Cons_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail))
         return NULL;
 
-    if (head) {
-        Py_INCREF(head);
-        self->head = head;
-    }
-
-    if (tail) {
-        Py_INCREF(tail);
-        self->tail = tail;
-    }
-
+    Py_INCREF(head);
+    self->head = head;
+    Py_INCREF(tail);
+    self->tail = tail;
     return (PyObject *)self;
 };
 
@@ -167,6 +161,78 @@ Cons_from_iter(PyObject *self, PyTypeObject *defining_class, PyObject *const *ar
     return result;
 }
 
+PyObject *
+Cons_repr(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+          Py_ssize_t nargs, PyObject *kwnames)
+{
+    _PyUnicodeWriter writer;
+    Py_ssize_t i;
+    PyObject *next = self;
+    consmodule_state *state = PyType_GetModuleState(defining_class);
+    if (state == NULL) {
+        return NULL;
+    }
+
+    i = Py_ReprEnter(self);
+    if (i != 0) {
+        return i > 0 ? PyUnicode_FromString("...") : NULL;
+    }
+
+    _PyUnicodeWriter_Init(&writer);
+    writer.overallocate = 1;
+    writer.min_length = 3;  // "(_)"
+    if (_PyUnicodeWriter_WriteChar(&writer, '(') < 0) {
+        goto error;
+    }
+
+    while (Py_IS_TYPE(next, defining_class)) {
+        PyObject *head = ((ConsObject *)next)->head;
+        PyObject *repr = PyObject_Repr(head);
+        if (repr == NULL)
+            goto error;
+        if (_PyUnicodeWriter_WriteStr(&writer, repr) < 0) {
+            Py_DECREF(repr);
+            goto error;
+        }
+        Py_DECREF(repr);
+
+        PyObject *tail = ((ConsObject *)next)->tail;
+        if (Py_Is(tail, state->nil)) {
+            break;
+        }
+        else if (!Py_IS_TYPE(tail, defining_class)) {
+            if (_PyUnicodeWriter_WriteASCIIString(&writer, " . ", 3) < 0) {
+                goto error;
+            }
+            repr = PyObject_Repr(tail);
+            if (repr == NULL)
+                goto error;
+            if (_PyUnicodeWriter_WriteStr(&writer, repr) < 0) {
+                Py_DECREF(repr);
+                goto error;
+            }
+            Py_DECREF(repr);
+            break;
+        }
+        if (_PyUnicodeWriter_WriteChar(&writer, ' ') < 0) {
+            goto error;
+        }
+        next = tail;
+    }
+
+    writer.overallocate = 0;
+    if (_PyUnicodeWriter_WriteChar(&writer, ')') < 0) {
+        goto error;
+    }
+    Py_ReprLeave(self);
+    return _PyUnicodeWriter_Finish(&writer);
+
+error:
+    _PyUnicodeWriter_Dealloc(&writer);
+    Py_ReprLeave(self);
+    return NULL;
+}
+
 static PyMemberDef Cons_members[] = {
     {"head", T_OBJECT_EX, offsetof(ConsObject, head), READONLY, "cons head"},
     {"tail", T_OBJECT_EX, offsetof(ConsObject, tail), READONLY, "cons tail"},
@@ -186,10 +252,9 @@ static PyMethodDef Cons_methods[] = {
 PyDoc_STRVAR(cons_doc, "Construct a new immutable pair");
 
 static PyType_Slot Cons_Type_Slots[] = {
-    {Py_tp_doc, (void *)cons_doc},   {Py_tp_dealloc, Cons_dealloc},
-    {Py_tp_new, Cons_new},           {Py_tp_members, Cons_members},
-    {Py_tp_traverse, Cons_traverse}, {Py_tp_clear, Cons_clear},
-    {Py_tp_methods, Cons_methods},   {0, NULL},
+    {Py_tp_doc, (void *)cons_doc}, {Py_tp_dealloc, Cons_dealloc},   {Py_tp_new, Cons_new},
+    {Py_tp_members, Cons_members}, {Py_tp_traverse, Cons_traverse}, {Py_tp_clear, Cons_clear},
+    {Py_tp_repr, Cons_repr},       {Py_tp_methods, Cons_methods},   {0, NULL},
 };
 
 static PyType_Spec Cons_Type_Spec = {

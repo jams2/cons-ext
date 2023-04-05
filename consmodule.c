@@ -23,6 +23,12 @@ Nil_repr(PyObject *self)
 static PyObject *
 Nil_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
+    // Throw an error if any args or kwds passed
+    if (PyTuple_Size(args) || (kwds && PyDict_Size(kwds))) {
+        PyErr_SetString(PyExc_TypeError, "nil() takes no arguments");
+        return NULL;
+    }
+
     consmodule_state *state = PyType_GetModuleState(type);
     if (state == NULL) {
         return NULL;

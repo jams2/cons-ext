@@ -180,20 +180,26 @@ Cons_from_xs(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
 }
 
 PyObject *
-Cons_repr(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
-          Py_ssize_t nargs, PyObject *kwnames)
+Cons_repr(PyObject *self)
 {
     _PyUnicodeWriter writer;
     Py_ssize_t i;
     PyObject *next = self;
-    consmodule_state *state = PyType_GetModuleState(defining_class);
+    PyObject *m = PyType_GetModuleByDef(Py_TYPE(self), &consmodule);
+    if (m == NULL) {
+        return NULL;
+    }
+    consmodule_state *state = PyModule_GetState(m);
     if (state == NULL) {
         return NULL;
     }
 
+    PyTypeObject *cons = (PyTypeObject *)state->ConsType;
+    Py_INCREF(cons);
+
     i = Py_ReprEnter(self);
     if (i != 0) {
-        return i > 0 ? PyUnicode_FromString("...") : NULL;
+        return i > 0 ? PyUnicode_FromFormat("...") : NULL;
     }
 
     _PyUnicodeWriter_Init(&writer);
@@ -203,7 +209,7 @@ Cons_repr(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
         goto error;
     }
 
-    while (Py_IS_TYPE(next, defining_class)) {
+    while (Py_IS_TYPE(next, cons)) {
         PyObject *head = ((ConsObject *)next)->head;
         PyObject *repr = PyObject_Repr(head);
         if (repr == NULL)
@@ -218,7 +224,7 @@ Cons_repr(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
         if (Py_Is(tail, state->nil)) {
             break;
         }
-        else if (!Py_IS_TYPE(tail, defining_class)) {
+        else if (!Py_IS_TYPE(tail, cons)) {
             if (_PyUnicodeWriter_WriteASCIIString(&writer, " . ", 3) < 0) {
                 goto error;
             }

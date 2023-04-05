@@ -10,9 +10,18 @@ typedef struct {
     PyObject *ConsType;
 } consmodule_state;
 
+/* The Nil type */
+
 typedef struct {
     PyObject_HEAD
 } NilObject;
+
+static int
+Nil_traverse(NilObject *self, visitproc visit, void *arg)
+{
+    Py_VISIT(Py_TYPE(self));
+    return 0;
+}
 
 PyObject *
 Nil_repr(PyObject *self)
@@ -23,7 +32,6 @@ Nil_repr(PyObject *self)
 static PyObject *
 Nil_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    // Throw an error if any args or kwds passed
     if (PyTuple_Size(args) || (kwds && PyDict_Size(kwds))) {
         PyErr_SetString(PyExc_TypeError, "nil() takes no arguments");
         return NULL;
@@ -38,12 +46,13 @@ Nil_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     return self;
 }
 
-PyDoc_STRVAR(Nil_doc, "Creates or returns the singleton nil object.");
+PyDoc_STRVAR(Nil_doc, "Get the singleton nil object");
 
 static PyType_Slot Nil_Type_Slots[] = {
     {Py_tp_doc, (void *)Nil_doc},
     {Py_tp_new, Nil_new},
     {Py_tp_repr, Nil_repr},
+    {Py_tp_traverse, Nil_traverse},
     {0, NULL},
 };
 
@@ -84,6 +93,7 @@ Cons_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
 static int
 Cons_traverse(ConsObject *self, visitproc visit, void *arg)
 {
+    Py_VISIT(Py_TYPE(self));
     Py_VISIT(self->head);
     Py_VISIT(self->tail);
     return 0;
@@ -108,40 +118,36 @@ Cons_dealloc(ConsObject *self)
 }
 
 PyObject *
-Cons_from_list(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
-               Py_ssize_t nargs, PyObject *kwnames)
+Cons_from_fast(PyObject *xs, consmodule_state *state)
 {
-    PyObject *list = args[0];
-    if (!PyList_Check(list)) {
-        PyErr_SetString(PyExc_TypeError, "Expected a list");
-        return NULL;
-    }
-
-    consmodule_state *state = PyType_GetModuleState(defining_class);
-    if (state == NULL) {
-        return NULL;
-    }
-
-    PyObject *cons = state->ConsType, *result = state->nil, *item;
-    Py_INCREF(state->nil);
+    PyObject *nil = state->nil;
+    Py_INCREF(nil);
+    PyObject *cons = state->ConsType;
     Py_INCREF(cons);
-    for (Py_ssize_t i = PyList_GET_SIZE(list) - 1; i >= 0; i--) {
-        item = PyList_GET_ITEM(list, i);
+
+    Py_ssize_t len = PySequence_Fast_GET_SIZE(xs);
+    PyObject *result = nil;
+    for (Py_ssize_t i = len - 1; i >= 0; i--) {
+        PyObject *item = PySequence_Fast_GET_ITEM(xs, i);
         Py_INCREF(item);
         result = PyObject_CallFunctionObjArgs(cons, item, result, NULL);
         Py_DECREF(item);
+        if (result == NULL)
+            goto finish;
     }
+
+finish:
     Py_DECREF(cons);
+    Py_DECREF(nil);
     return result;
 }
 
 PyObject *
-Cons_from_iter(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
-               Py_ssize_t nargs, PyObject *kwnames)
+Cons_from_xs(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+             Py_ssize_t nargs, PyObject *kwnames)
 {
-    PyObject *iter = NULL, *tmp = NULL;
-    tmp = args[0];
-    if ((iter = PyObject_GetIter(tmp)) == NULL) {
+    if (nargs != 1) {
+        PyErr_SetString(PyExc_TypeError, "cons.from takes exactly one argument");
         return NULL;
     }
 
@@ -150,14 +156,23 @@ Cons_from_iter(PyObject *self, PyTypeObject *defining_class, PyObject *const *ar
         return NULL;
     }
 
-    PyObject *cons = state->ConsType, *result = state->nil, *item;
-    Py_INCREF(state->nil);
-    Py_INCREF(cons);
-    while ((item = PyIter_Next(iter))) {
-        result = PyObject_CallFunctionObjArgs(cons, item, result, NULL);
-        Py_DECREF(item);
+    PyObject *xs = args[0], *tp = NULL, *result = NULL;
+
+    if (PyGen_Check(xs)) {
+        // We know we have to iterate in reverse order, so need a concrete sequence.
+        // Converting a generator to a tuple is not as fast as iterating directly over
+        // the generator, but way faster than converting it to a list or relying on
+        // PySequence_Fast.
+        tp = PySequence_Tuple(xs);
+        xs = tp;
     }
-    Py_DECREF(cons);
+
+    if ((xs = PySequence_Fast(xs, "Expected a sequence or iterable")) != NULL) {
+        result = Cons_from_fast(xs, state);
+        Py_DECREF(xs);
+    }
+
+    Py_XDECREF(tp);
     return result;
 }
 
@@ -240,12 +255,9 @@ static PyMemberDef Cons_members[] = {
 };
 
 static PyMethodDef Cons_methods[] = {
-    {"from_list", (PyCFunction)Cons_from_list,
+    {"from_xs", (PyCFunction)Cons_from_xs,
      METH_METHOD | METH_FASTCALL | METH_KEYWORDS | METH_CLASS,
-     "Create a cons list from a list"},
-    {"from_iter", (PyCFunction)Cons_from_iter,
-     METH_METHOD | METH_FASTCALL | METH_KEYWORDS | METH_CLASS,
-     "Create a cons list from an iterable"},
+     "Create a cons list from a sequence or iterable"},
     {NULL},
 };
 
@@ -305,6 +317,7 @@ consmodule_traverse(PyObject *m, visitproc visit, void *arg)
     consmodule_state *state = PyModule_GetState(m);
     Py_VISIT(state->ConsType);
     Py_VISIT(state->NilType);
+    Py_VISIT(state->nil);
     return 0;
 }
 
@@ -314,6 +327,7 @@ consmodule_clear(PyObject *m)
     consmodule_state *state = PyModule_GetState(m);
     Py_CLEAR(state->ConsType);
     Py_CLEAR(state->NilType);
+    Py_CLEAR(state->nil);
     return 0;
 }
 

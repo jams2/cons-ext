@@ -342,6 +342,16 @@ consmodule_exec(PyObject *m)
     if (PyModule_AddType(m, (PyTypeObject *)state->ConsType) < 0) {
         return -1;
     }
+    PyObject *match_args = PyTuple_New(2);
+    if (match_args == NULL) {
+        return -1;
+    }
+    PyTuple_SET_ITEM(match_args, 0, PyUnicode_FromString("head"));
+    PyTuple_SET_ITEM(match_args, 1, PyUnicode_FromString("tail"));
+    if (PyDict_SetItemString(((PyTypeObject *)state->ConsType)->tp_dict, "__match_args__",
+                             match_args) < 0) {
+        return -1;
+    }
 
     state->NilType = PyType_FromModuleAndSpec(m, &Nil_Type_Spec, NULL);
     if (state->NilType == NULL) {

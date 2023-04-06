@@ -1,3 +1,5 @@
+import operator
+
 import pytest
 from fastcons import cons, nil
 
@@ -85,3 +87,26 @@ def test_repr_with_multiple_cycles():
     x.append(p)
     y.append(q)
     assert repr(q) == "(1 ['x', (['y', ...])] ['y', ...])"
+
+
+@pytest.mark.parametrize(
+    ("op", "a", "b", "expected"),
+    [
+        # eq
+        (operator.eq, cons(1, 2), cons(1, 2), True),
+        (operator.eq, cons(1, 2), cons(1, 3), False),
+        (operator.eq, cons(1, 2), cons(2, 2), False),
+        (operator.eq, cons(1, cons(2, nil())), cons(1, cons(2, nil())), True),
+        (operator.eq, cons(1, cons(2, nil())), cons(1, cons(3, nil())), False),
+        (operator.eq, cons(1, cons(2, nil())), cons(2, cons(2, nil())), False),
+        (operator.eq, cons.from_xs(range(100)), cons.from_xs(range(100)), True),
+        (operator.eq, cons.from_xs(range(100)), cons.from_xs(range(1, 101)), False),
+        (operator.eq, cons.from_xs(range(100)), cons.from_xs(range(99)), False),
+        # gt
+        (operator.gt, cons(1, 1), cons(0, 0), True),
+        (operator.gt, cons(2, cons(2, cons(2, 2))), cons(1, cons(1, cons(1, 1))), True),
+        (operator.gt, cons(2, (2,)), cons(1, (1,)), True),
+    ],
+)
+def test_cons_richcompare(op, a, b, expected):
+    assert op(a, b) == expected

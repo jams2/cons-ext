@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2023-04-16
+
+### Fixed
+
+- Incorrect usage of `Py_RETURN_RICHCOMPARE`
+
 ## [0.1.0] - 2023-04-06
 
 ### Added

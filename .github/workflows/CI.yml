@@ -27,12 +27,10 @@ jobs:
         uses: RalfG/python-wheels-manylinux-build@v0.7.1-manylinux2014_x86_64
         with:
           python-versions: 'cp311-cp311'
-      - name: Install package
-        run: pip install -vv --force-reinstall --no-cache-dir . 
-      - name: Test
-        run: pytest --cache-clear -vv
+          pip-wheel-args: '-w ./manylinuxdist'
       - name: Publish package
         uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
+          packages_dir: './manylinuxdist'

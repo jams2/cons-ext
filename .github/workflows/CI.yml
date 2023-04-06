@@ -37,9 +37,15 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           path: ./wheelhouse/*.whl
-      # - name: Publish package
-      #   uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
-      #   with:
-      #     user: __token__
-      #     password: ${{ secrets.PYPI_API_TOKEN }}
-
+  upload_pypi:
+    needs: [build_wheels]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          path: wheelhouse
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages_dir: wheelhouse

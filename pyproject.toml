@@ -5,6 +5,8 @@ authors = [
     {name = "Joshua Munn", email = "public@elysee-munn.family"},
 ]
 requires-python = ">=3.11"
+description = "An efficient implementation of cons"
+readme = "README.md"
 
 [build-system]
 requires = ["setuptools"]
@@ -19,6 +21,7 @@ dev = [
     "black ~= 23.1.0",
     "ruff ~= 0.0.256",
 ]
+build = ["build == 0.10.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

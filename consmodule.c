@@ -287,7 +287,7 @@ Cons_richcompare(PyObject *self, PyObject *other, int op)
                 that = ((ConsObject *)that)->tail;
         }
     }
-    Py_RETURN_RICHCOMPARE(this, that, op);
+    return PyObject_RichCompare(this, that, op);
 }
 
 static PyMemberDef Cons_members[] = {

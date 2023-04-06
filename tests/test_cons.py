@@ -106,6 +106,7 @@ def test_repr_with_multiple_cycles():
         (operator.gt, cons(1, 1), cons(0, 0), True),
         (operator.gt, cons(2, cons(2, cons(2, 2))), cons(1, cons(1, cons(1, 1))), True),
         (operator.gt, cons(2, (2,)), cons(1, (1,)), True),
+        (operator.gt, cons((2,), (2,)), cons((1,), (1,)), True),
     ],
 )
 def test_cons_richcompare(op, a, b, expected):

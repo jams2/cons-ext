@@ -2,6 +2,18 @@
 #include <Python.h>
 #include <structmember.h>
 
+#define DECREF_AND_NULLIFY(ptr) \
+    do {                        \
+        Py_DECREF(ptr);         \
+        ptr = NULL;             \
+    } while (0)
+
+#define XDECREF_AND_NULLIFY(ptr) \
+    do {                         \
+        Py_XDECREF(ptr);         \
+        ptr = NULL;              \
+    } while (0)
+
 static struct PyModuleDef consmodule;
 
 typedef struct {
@@ -38,9 +50,8 @@ Nil_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     }
 
     consmodule_state *state = PyType_GetModuleState(type);
-    if (state == NULL) {
+    if (state == NULL)
         return NULL;
-    }
     PyObject *self = state->nil;
     Py_INCREF(self);
     return self;
@@ -83,8 +94,10 @@ Cons_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
 
     static char *kwlist[] = {"head", "tail", NULL};
     PyObject *head = NULL, *tail = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail))
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail)) {
+        DECREF_AND_NULLIFY(self);
         return NULL;
+    }
 
     Py_INCREF(head);
     self->head = head;
@@ -124,24 +137,19 @@ PyObject *
 Cons_from_fast(PyObject *xs, consmodule_state *state)
 {
     PyObject *nil = state->nil;
-    Py_INCREF(nil);
     PyObject *cons = state->ConsType;
-    Py_INCREF(cons);
 
     Py_ssize_t len = PySequence_Fast_GET_SIZE(xs);
-    PyObject *result = nil;
+    PyObject *result = nil, *item;
     for (Py_ssize_t i = len - 1; i >= 0; i--) {
-        PyObject *item = PySequence_Fast_GET_ITEM(xs, i);
+        item = PySequence_Fast_GET_ITEM(xs, i);
         Py_INCREF(item);
         result = PyObject_CallFunctionObjArgs(cons, item, result, NULL);
-        Py_DECREF(item);
+        DECREF_AND_NULLIFY(item);
         if (result == NULL)
-            goto finish;
+            break;
     }
 
-finish:
-    Py_DECREF(cons);
-    Py_DECREF(nil);
     return result;
 }
 
@@ -150,14 +158,13 @@ Cons_from_xs(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
              Py_ssize_t nargs, PyObject *kwnames)
 {
     if (nargs != 1) {
-        PyErr_SetString(PyExc_TypeError, "cons.from takes exactly one argument");
+        PyErr_SetString(PyExc_TypeError, "cons.from_xs takes exactly one argument");
         return NULL;
     }
 
     consmodule_state *state = PyType_GetModuleState(defining_class);
-    if (state == NULL) {
+    if (state == NULL)
         return NULL;
-    }
 
     PyObject *xs = args[0], *tp = NULL, *result = NULL;
 
@@ -172,10 +179,10 @@ Cons_from_xs(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
 
     if ((xs = PySequence_Fast(xs, "Expected a sequence or iterable")) != NULL) {
         result = Cons_from_fast(xs, state);
-        Py_DECREF(xs);
+        DECREF_AND_NULLIFY(xs);
     }
 
-    Py_XDECREF(tp);
+    XDECREF_AND_NULLIFY(tp);
     return result;
 }
 
@@ -190,12 +197,10 @@ Cons_repr(PyObject *self)
         return NULL;
     }
     consmodule_state *state = PyModule_GetState(m);
-    if (state == NULL) {
+    if (state == NULL)
         return NULL;
-    }
 
     PyTypeObject *cons = (PyTypeObject *)state->ConsType;
-    Py_INCREF(cons);
 
     i = Py_ReprEnter(self);
     if (i != 0) {
@@ -209,33 +214,34 @@ Cons_repr(PyObject *self)
         goto error;
     }
 
+    PyObject *head = NULL, *repr = NULL, *tail = NULL;
     while (Py_IS_TYPE(next, cons)) {
-        PyObject *head = ((ConsObject *)next)->head;
-        PyObject *repr = PyObject_Repr(head);
+        head = ((ConsObject *)next)->head;
+        repr = PyObject_Repr(head);
         if (repr == NULL)
             goto error;
         if (_PyUnicodeWriter_WriteStr(&writer, repr) < 0) {
-            Py_DECREF(repr);
+            DECREF_AND_NULLIFY(repr);
             goto error;
         }
-        Py_DECREF(repr);
+        DECREF_AND_NULLIFY(repr);
 
-        PyObject *tail = ((ConsObject *)next)->tail;
-        if (Py_Is(tail, state->nil)) {
+        tail = ((ConsObject *)next)->tail;
+        if (Py_Is(tail, state->nil))
             break;
-        }
         else if (!Py_IS_TYPE(tail, cons)) {
             if (_PyUnicodeWriter_WriteASCIIString(&writer, " . ", 3) < 0) {
                 goto error;
             }
             repr = PyObject_Repr(tail);
-            if (repr == NULL)
-                goto error;
-            if (_PyUnicodeWriter_WriteStr(&writer, repr) < 0) {
-                Py_DECREF(repr);
+            if (repr == NULL) {
                 goto error;
             }
-            Py_DECREF(repr);
+            if (_PyUnicodeWriter_WriteStr(&writer, repr) < 0) {
+                DECREF_AND_NULLIFY(repr);
+                goto error;
+            }
+            DECREF_AND_NULLIFY(repr);
             break;
         }
         if (_PyUnicodeWriter_WriteChar(&writer, ' ') < 0) {
@@ -249,13 +255,11 @@ Cons_repr(PyObject *self)
         goto error;
     }
     Py_ReprLeave(self);
-    Py_DECREF(cons);
     return _PyUnicodeWriter_Finish(&writer);
 
 error:
     _PyUnicodeWriter_Dealloc(&writer);
     Py_ReprLeave(self);
-    Py_DECREF(cons);
     return NULL;
 }
 
@@ -263,32 +267,26 @@ PyObject *
 Cons_richcompare(PyObject *self, PyObject *other, int op)
 {
     consmodule_state *state = PyType_GetModuleState(Py_TYPE(self));
-    if (state == NULL) {
+    if (state == NULL)
         return NULL;
-    }
 
     PyTypeObject *cons = (PyTypeObject *)state->ConsType;
-    Py_INCREF(cons);
-    if (!Py_IS_TYPE(other, cons)) {
+    if (!Py_IS_TYPE(other, cons))
         Py_RETURN_FALSE;
-    }
 
     PyObject *this = self, *that = other;
     while (Py_IS_TYPE(this, cons) && Py_IS_TYPE(that, cons)) {
         switch (PyObject_RichCompareBool(((ConsObject *)this)->head,
                                          ((ConsObject *)that)->head, op)) {
             case -1:
-                Py_DECREF(cons);
                 return NULL;
             case 0:
-                Py_DECREF(cons);
                 Py_RETURN_FALSE;
             case 1:
                 this = ((ConsObject *)this)->tail;
                 that = ((ConsObject *)that)->tail;
         }
     }
-    Py_DECREF(cons);
     Py_RETURN_RICHCOMPARE(this, that, op);
 }
 
@@ -331,35 +329,31 @@ static int
 consmodule_exec(PyObject *m)
 {
     consmodule_state *state = PyModule_GetState(m);
-    if (state == NULL) {
+    if (state == NULL)
         return -1;
-    }
 
     state->ConsType = PyType_FromModuleAndSpec(m, &Cons_Type_Spec, NULL);
-    if (state->ConsType == NULL) {
+    if (state->ConsType == NULL)
         return -1;
-    }
-    if (PyModule_AddType(m, (PyTypeObject *)state->ConsType) < 0) {
+    if (PyModule_AddType(m, (PyTypeObject *)state->ConsType) < 0)
         return -1;
-    }
     PyObject *match_args = PyTuple_New(2);
-    if (match_args == NULL) {
+    if (match_args == NULL)
         return -1;
-    }
     PyTuple_SET_ITEM(match_args, 0, PyUnicode_FromString("head"));
     PyTuple_SET_ITEM(match_args, 1, PyUnicode_FromString("tail"));
     if (PyDict_SetItemString(((PyTypeObject *)state->ConsType)->tp_dict, "__match_args__",
                              match_args) < 0) {
+        DECREF_AND_NULLIFY(match_args);
         return -1;
     }
+    DECREF_AND_NULLIFY(match_args);
 
     state->NilType = PyType_FromModuleAndSpec(m, &Nil_Type_Spec, NULL);
-    if (state->NilType == NULL) {
+    if (state->NilType == NULL)
         return -1;
-    }
-    if (PyModule_AddType(m, (PyTypeObject *)state->NilType) < 0) {
+    if (PyModule_AddType(m, (PyTypeObject *)state->NilType) < 0)
         return -1;
-    }
 
     PyObject *nil =
         ((PyTypeObject *)state->NilType)->tp_alloc((PyTypeObject *)state->NilType, 0);

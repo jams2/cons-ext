@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cons.to_list` method
 - `CAR` and `CDR` convenience macros
 
+### Fixed
+
+- Cons_richcompare returning incorrect results for `!=`
+
 ## [0.1.3] - 2023-04-16
 
 ### Fixed

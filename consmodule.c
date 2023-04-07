@@ -108,18 +108,14 @@ Cons_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     consmodule_state *state = PyType_GetModuleState(type);
     if (state == NULL)
         return NULL;
-    PyObject *nil = state->nil;
     PyTypeObject *cons = (PyTypeObject *)state->ConsType;
 
-    if (Py_Is(tail, nil)) {
+    if (Py_Is(tail, state->nil))
         self->list_len = 1;
-    }
-    else if (Py_IS_TYPE(tail, cons)) {
+    else if (Py_IS_TYPE(tail, cons))
         self->list_len = IS_LIST(tail) ? 1 + LIST_LEN(tail) : -1;
-    }
-    else {
+    else
         self->list_len = 0;
-    }
 
     Py_INCREF(head);
     self->head = head;
@@ -223,11 +219,10 @@ Cons_to_list(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
 
     PyObject *list = PyList_New(LIST_LEN(self));
     PyObject *next = self, *head = NULL;
-    for (Py_ssize_t i = 0; i < LIST_LEN(self); i++) {
+    for (Py_ssize_t i = 0; i < LIST_LEN(self); i++, next = CDR(next)) {
         head = CAR(next);
         Py_INCREF(head);  // PyList_SET_ITEM steals a reference
         PyList_SET_ITEM(list, i, head);
-        next = CDR(next);
     }
     return list;
 }
@@ -249,16 +244,14 @@ Cons_repr(PyObject *self)
     PyTypeObject *cons = (PyTypeObject *)state->ConsType;
 
     i = Py_ReprEnter(self);
-    if (i != 0) {
+    if (i != 0)
         return i > 0 ? PyUnicode_FromFormat("...") : NULL;
-    }
 
     _PyUnicodeWriter_Init(&writer);
     writer.overallocate = 1;
     writer.min_length = 3;  // "(_)"
-    if (_PyUnicodeWriter_WriteChar(&writer, '(') < 0) {
+    if (_PyUnicodeWriter_WriteChar(&writer, '(') < 0)
         goto error;
-    }
 
     PyObject *head = NULL, *repr = NULL, *tail = NULL;
     while (Py_IS_TYPE(next, cons)) {
@@ -276,13 +269,11 @@ Cons_repr(PyObject *self)
         if (Py_Is(tail, state->nil))
             break;
         else if (!Py_IS_TYPE(tail, cons)) {
-            if (_PyUnicodeWriter_WriteASCIIString(&writer, " . ", 3) < 0) {
+            if (_PyUnicodeWriter_WriteASCIIString(&writer, " . ", 3) < 0)
                 goto error;
-            }
             repr = PyObject_Repr(tail);
-            if (repr == NULL) {
+            if (repr == NULL)
                 goto error;
-            }
             if (_PyUnicodeWriter_WriteStr(&writer, repr) < 0) {
                 DECREF_AND_NULLIFY(repr);
                 goto error;
@@ -290,16 +281,14 @@ Cons_repr(PyObject *self)
             DECREF_AND_NULLIFY(repr);
             break;
         }
-        if (_PyUnicodeWriter_WriteChar(&writer, ' ') < 0) {
+        if (_PyUnicodeWriter_WriteChar(&writer, ' ') < 0)
             goto error;
-        }
         next = tail;
     }
 
     writer.overallocate = 0;
-    if (_PyUnicodeWriter_WriteChar(&writer, ')') < 0) {
+    if (_PyUnicodeWriter_WriteChar(&writer, ')') < 0)
         goto error;
-    }
     Py_ReprLeave(self);
     return _PyUnicodeWriter_Finish(&writer);
 
@@ -316,21 +305,33 @@ Cons_richcompare(PyObject *self, PyObject *other, int op)
     if (state == NULL)
         return NULL;
 
+    PyObject *nil = state->nil;
     PyTypeObject *cons = (PyTypeObject *)state->ConsType;
     if (!Py_IS_TYPE(other, cons))
-        Py_RETURN_FALSE;
+        Py_RETURN_NOTIMPLEMENTED;
 
     PyObject *this = self, *that = other;
+    /* cdr down the list until comparison fails or either object is not a cons */
     while (Py_IS_TYPE(this, cons) && Py_IS_TYPE(that, cons)) {
-        switch (PyObject_RichCompareBool(CAR(this), CAR(that), op)) {
-            case -1:
-                return NULL;
-            case 0:
-                Py_RETURN_FALSE;
-            case 1:
-                this = CDR(this);
-                that = CDR(that);
+        int cmp = PyObject_RichCompareBool(CAR(this), CAR(that), op);
+        if (cmp < 0)
+            return NULL;
+        else if (cmp && op == Py_NE)
+            Py_RETURN_TRUE;
+        else if (!cmp && op != Py_NE)
+            Py_RETURN_FALSE;
+        else {
+            this = CDR(this);
+            that = CDR(that);
         }
+    }
+
+    if (Py_Is(this, nil) && Py_Is(that, nil)) {
+        // In the case of a proper list, disregard comparison of the terminating element
+        if (op == Py_NE)
+            Py_RETURN_FALSE;
+        else
+            Py_RETURN_TRUE;
     }
     return PyObject_RichCompare(this, that, op);
 }

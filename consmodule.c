@@ -1,3 +1,14 @@
+/****
+ * Consider these all "maybes" for now:
+ *
+ * TODO: add recursive from_xs method (cons.rfrom_xs)
+ * TODO: add to_str, to_tuple, to_bytes (?)
+ * TODO: make cons iterable, so it can be unpacked into a 2-tuple
+ * TODO: provide a to_list_iter method, which iterates over each member of a proper cons list
+ *       - see tupleobject.c, PyTupleIter_Type
+ * TODO: provide map and reduce functions
+ ****/
+
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <structmember.h>

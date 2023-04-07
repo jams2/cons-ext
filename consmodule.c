@@ -14,6 +14,11 @@
         ptr = NULL;              \
     } while (0)
 
+#define IS_LIST(ptr) (((ConsObject *)ptr)->list_len > 0)
+#define LIST_LEN(ptr) (((ConsObject *)ptr)->list_len)
+#define CAR(ptr) (((ConsObject *)ptr)->head)
+#define CDR(ptr) (((ConsObject *)ptr)->tail)
+
 static struct PyModuleDef consmodule;
 
 typedef struct {
@@ -82,12 +87,13 @@ static PyType_Spec Nil_Type_Spec = {
 typedef struct {
     PyObject_HEAD PyObject *head;
     PyObject *tail;
+    int list_len;
 } ConsObject;
 
 PyObject *
-Cons_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
+Cons_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    ConsObject *self = (ConsObject *)subtype->tp_alloc(subtype, 0);
+    ConsObject *self = (ConsObject *)type->tp_alloc(type, 0);
     if (self == NULL) {
         return NULL;
     }
@@ -97,6 +103,22 @@ Cons_new(PyTypeObject *subtype, PyObject *args, PyObject *kwds)
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail)) {
         DECREF_AND_NULLIFY(self);
         return NULL;
+    }
+
+    consmodule_state *state = PyType_GetModuleState(type);
+    if (state == NULL)
+        return NULL;
+    PyObject *nil = state->nil;
+    PyTypeObject *cons = (PyTypeObject *)state->ConsType;
+
+    if (Py_Is(tail, nil)) {
+        self->list_len = 1;
+    }
+    else if (Py_IS_TYPE(tail, cons)) {
+        self->list_len = IS_LIST(tail) ? 1 + LIST_LEN(tail) : -1;
+    }
+    else {
+        self->list_len = 0;
     }
 
     Py_INCREF(head);
@@ -118,8 +140,8 @@ Cons_traverse(ConsObject *self, visitproc visit, void *arg)
 int
 Cons_clear(PyObject *self)
 {
-    Py_CLEAR(((ConsObject *)self)->head);
-    Py_CLEAR(((ConsObject *)self)->tail);
+    Py_CLEAR(CAR(self));
+    Py_CLEAR(CDR(self));
     return 0;
 }
 
@@ -169,9 +191,9 @@ Cons_from_xs(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
     PyObject *xs = args[0], *tp = NULL, *result = NULL;
 
     if (PyGen_Check(xs)) {
-        // We know we have to iterate in reverse order, so need a concrete sequence.
+        // We should iterate in reverse order, so need a concrete sequence.
         // Converting a generator to a tuple is not as fast as iterating directly over
-        // the generator, but way faster than converting it to a list or relying on
+        // the generator, but much faster than converting it to a list or relying on
         // PySequence_Fast.
         tp = PySequence_Tuple(xs);
         xs = tp;
@@ -184,6 +206,30 @@ Cons_from_xs(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
 
     XDECREF_AND_NULLIFY(tp);
     return result;
+}
+
+PyObject *
+Cons_to_list(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+             Py_ssize_t nargs, PyObject *kwnames)
+{
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError, "expected zero arguments");
+        return NULL;
+    }
+    else if (!IS_LIST(self)) {
+        PyErr_SetString(PyExc_ValueError, "expected proper cons list");
+        return NULL;
+    }
+
+    PyObject *list = PyList_New(LIST_LEN(self));
+    PyObject *next = self, *head = NULL;
+    for (Py_ssize_t i = 0; i < LIST_LEN(self); i++) {
+        head = CAR(next);
+        Py_INCREF(head);  // PyList_SET_ITEM steals a reference
+        PyList_SET_ITEM(list, i, head);
+        next = CDR(next);
+    }
+    return list;
 }
 
 PyObject *
@@ -216,7 +262,7 @@ Cons_repr(PyObject *self)
 
     PyObject *head = NULL, *repr = NULL, *tail = NULL;
     while (Py_IS_TYPE(next, cons)) {
-        head = ((ConsObject *)next)->head;
+        head = CAR(next);
         repr = PyObject_Repr(head);
         if (repr == NULL)
             goto error;
@@ -226,7 +272,7 @@ Cons_repr(PyObject *self)
         }
         DECREF_AND_NULLIFY(repr);
 
-        tail = ((ConsObject *)next)->tail;
+        tail = CDR(next);
         if (Py_Is(tail, state->nil))
             break;
         else if (!Py_IS_TYPE(tail, cons)) {
@@ -276,15 +322,14 @@ Cons_richcompare(PyObject *self, PyObject *other, int op)
 
     PyObject *this = self, *that = other;
     while (Py_IS_TYPE(this, cons) && Py_IS_TYPE(that, cons)) {
-        switch (PyObject_RichCompareBool(((ConsObject *)this)->head,
-                                         ((ConsObject *)that)->head, op)) {
+        switch (PyObject_RichCompareBool(CAR(this), CAR(that), op)) {
             case -1:
                 return NULL;
             case 0:
                 Py_RETURN_FALSE;
             case 1:
-                this = ((ConsObject *)this)->tail;
-                that = ((ConsObject *)that)->tail;
+                this = CDR(this);
+                that = CDR(that);
         }
     }
     return PyObject_RichCompare(this, that, op);
@@ -296,10 +341,14 @@ static PyMemberDef Cons_members[] = {
     {NULL},
 };
 
+PyDoc_STRVAR(from_xs_doc, "Create a cons list from a sequence or iterable");
+PyDoc_STRVAR(to_list_doc, "Convert a proper const list to a Python list");
+
 static PyMethodDef Cons_methods[] = {
     {"from_xs", (PyCFunction)Cons_from_xs,
-     METH_METHOD | METH_FASTCALL | METH_KEYWORDS | METH_CLASS,
-     "Create a cons list from a sequence or iterable"},
+     METH_METHOD | METH_FASTCALL | METH_KEYWORDS | METH_CLASS, from_xs_doc},
+    {"to_list", (PyCFunction)Cons_to_list, METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+     to_list_doc},
     {NULL},
 };
 

@@ -4,12 +4,7 @@ on:
   push:
     branches:
       - main
-    tags:
-      - v*
   pull_request:
-  release:
-    types:
-      - published
 
 jobs:
   build_wheels:
@@ -39,17 +34,3 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           path: ./wheelhouse/*.whl
-  upload_pypi:
-    needs: [build_wheels]
-    runs-on: ubuntu-latest
-    if: github.ref_name == 'main' && github.ref_type == 'tag'
-    steps:
-      - uses: actions/download-artifact@v3
-        with:
-          name: artifact
-          path: wheelhouse
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          packages_dir: wheelhouse

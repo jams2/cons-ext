@@ -166,6 +166,7 @@ PyObject *
 Cons_from_fast(PyObject *xs, consmodule_state *state)
 {
     PyObject *nil = state->nil;
+    Py_INCREF(nil);
     PyObject *cons = state->ConsType;
 
     Py_ssize_t len = PySequence_Fast_GET_SIZE(xs);
@@ -174,6 +175,18 @@ Cons_from_fast(PyObject *xs, consmodule_state *state)
         item = PySequence_Fast_GET_ITEM(xs, i);
         Py_INCREF(item);
         result = PyObject_CallFunctionObjArgs(cons, item, result, NULL);
+
+        /* Cons_new increments the ref count for both of its args, so if we don't decrement
+         * the tail here we end up with a memory leak. If result is the return value from
+         * Cons_new, it will have a refcount of 1, so passing it as the tail of the next
+         * Cons_new call will leave it with a refcount of 2. nil may be different as a
+         * single instance is shared.
+         * We need to decrement  after the call to Cons_new so as not to trigger GC before
+         * we actually create the object.
+         * Maybe this can be optimised by creating the object manually rather than calling
+         * the cons Type object.
+         */
+        Py_DECREF(((ConsObject *)result)->tail);
         DECREF_AND_NULLIFY(item);
         if (result == NULL)
             break;

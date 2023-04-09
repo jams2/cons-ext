@@ -9,40 +9,9 @@
  * TODO: provide map and reduce functions
  ****/
 
-#define PY_SSIZE_T_CLEAN
-#include <Python.h>
-#include <structmember.h>
-
-#define DECREF_AND_NULLIFY(ptr) \
-    do {                        \
-        Py_DECREF(ptr);         \
-        ptr = NULL;             \
-    } while (0)
-
-#define XDECREF_AND_NULLIFY(ptr) \
-    do {                         \
-        Py_XDECREF(ptr);         \
-        ptr = NULL;              \
-    } while (0)
-
-#define IS_LIST(ptr) (((ConsObject *)ptr)->list_len > 0)
-#define LIST_LEN(ptr) (((ConsObject *)ptr)->list_len)
-#define CAR(ptr) (((ConsObject *)ptr)->head)
-#define CDR(ptr) (((ConsObject *)ptr)->tail)
-
-static struct PyModuleDef consmodule;
-
-typedef struct {
-    PyObject *NilType;
-    PyObject *nil;
-    PyObject *ConsType;
-} consmodule_state;
+#include "consmodule.h"
 
 /* The Nil type */
-
-typedef struct {
-    PyObject_HEAD
-} NilObject;
 
 static int
 Nil_traverse(NilObject *self, visitproc visit, void *arg)
@@ -95,13 +64,24 @@ static PyType_Spec Nil_Type_Spec = {
 
 /* The Cons type */
 
-typedef struct {
-    PyObject_HEAD PyObject *head;
-    PyObject *tail;
-    int list_len;
-} ConsObject;
+static PyObject *
+Cons_alloc(PyTypeObject *type, Py_ssize_t nitems)
+{
+    consmodule_state *state = PyType_GetModuleState(type);
+    if (state == NULL)
+        return NULL;
 
-PyObject *
+    PyObject *ob = (PyObject *)maybe_freelist_pop(state);
+    if (ob == NULL) {
+        ob = PyType_GenericAlloc(type, nitems);
+        fprintf(stderr, "allocated new cons %p\n", ob);
+        return ob;
+    }
+    fprintf(stderr, "used object %p from freelist\n", ob);
+    return ob;
+}
+
+static PyObject *
 Cons_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
     ConsObject *self = (ConsObject *)type->tp_alloc(type, 0);
@@ -147,6 +127,7 @@ Cons_traverse(ConsObject *self, visitproc visit, void *arg)
 int
 Cons_clear(PyObject *self)
 {
+    fprintf(stderr, "Cons_clear %p\n", self);
     Py_CLEAR(CAR(self));
     Py_CLEAR(CDR(self));
     return 0;
@@ -155,10 +136,19 @@ Cons_clear(PyObject *self)
 void
 Cons_dealloc(ConsObject *self)
 {
+    fprintf(stderr, "Cons_dealloc %p\n", self);
     PyObject_GC_UnTrack(self);
     Py_TRASHCAN_BEGIN(self, Cons_dealloc);
     Cons_clear((PyObject *)self);
-    Py_TYPE(self)->tp_free(self);
+
+    consmodule_state *state = PyType_GetModuleState(Py_TYPE(self));
+    if (state == NULL)
+        PyErr_BadInternalCall();
+    else {
+        freelist_push(state, self);
+        fprintf(stderr, "pushed %p to freelist\n", self);
+    }
+
     Py_TRASHCAN_END;
 }
 
@@ -166,6 +156,7 @@ PyObject *
 Cons_from_fast(PyObject *xs, consmodule_state *state)
 {
     PyObject *nil = state->nil;
+    Py_INCREF(nil);
     PyObject *cons = state->ConsType;
 
     Py_ssize_t len = PySequence_Fast_GET_SIZE(xs);
@@ -174,6 +165,18 @@ Cons_from_fast(PyObject *xs, consmodule_state *state)
         item = PySequence_Fast_GET_ITEM(xs, i);
         Py_INCREF(item);
         result = PyObject_CallFunctionObjArgs(cons, item, result, NULL);
+
+        /* Cons_new increments the ref count for both of its args, so if we don't decrement
+         * the tail here we end up with a memory leak. If result is the return value from
+         * Cons_new, it will have a refcount of 1, so passing it as the tail of the next
+         * Cons_new call will leave it with a refcount of 2. nil may be different as a
+         * single instance is shared.
+         * We need to decrement  after the call to Cons_new so as not to trigger GC before
+         * we actually create the object.
+         * Maybe this can be optimised by creating the object manually rather than calling
+         * the cons Type object.
+         */
+        Py_DECREF(((ConsObject *)result)->tail);
         DECREF_AND_NULLIFY(item);
         if (result == NULL)
             break;
@@ -368,6 +371,7 @@ PyDoc_STRVAR(cons_doc, "Construct a new immutable pair");
 
 static PyType_Slot Cons_Type_Slots[] = {
     {Py_tp_doc, (void *)cons_doc},
+    {Py_tp_alloc, Cons_alloc},
     {Py_tp_dealloc, Cons_dealloc},
     {Py_tp_new, Cons_new},
     {Py_tp_members, Cons_members},
@@ -386,18 +390,51 @@ static PyType_Spec Cons_Type_Spec = {
     .slots = Cons_Type_Slots,
 };
 
+static ConsObject *
+maybe_freelist_pop(consmodule_state *state)
+{
+    if (state->free == NULL)
+        return NULL;
+    ConsObject *next = state->free;
+    PyObject_GC_Track(next);
+    state->free = (ConsObject *)next->tail;
+    return (ConsObject *)Py_NewRef(next);
+}
+
+static void
+freelist_push(consmodule_state *state, ConsObject *ob)
+{
+    ConsObject *old_head = state->free;
+    ob->tail = (PyObject *)old_head;
+    ob->head = NULL;
+    state->free = ob;
+}
+
+static void
+freelist_clear(consmodule_state *state)
+{
+    ConsObject *next = state->free, *ob = NULL;
+    while (next != NULL) {
+        ob = next;
+        next = (ConsObject *)ob->tail;
+        PyObject_GC_Del((void *)ob);
+    }
+}
+
 static int
 consmodule_exec(PyObject *m)
 {
     consmodule_state *state = PyModule_GetState(m);
     if (state == NULL)
         return -1;
+    state->free = NULL;
 
     state->ConsType = PyType_FromModuleAndSpec(m, &Cons_Type_Spec, NULL);
     if (state->ConsType == NULL)
         return -1;
     if (PyModule_AddType(m, (PyTypeObject *)state->ConsType) < 0)
         return -1;
+
     PyObject *match_args = PyTuple_New(2);
     if (match_args == NULL)
         return -1;
@@ -419,6 +456,7 @@ consmodule_exec(PyObject *m)
     PyObject *nil =
         ((PyTypeObject *)state->NilType)->tp_alloc((PyTypeObject *)state->NilType, 0);
     state->nil = nil;
+
     return 0;
 }
 
@@ -445,6 +483,14 @@ consmodule_clear(PyObject *m)
     Py_CLEAR(state->NilType);
     Py_CLEAR(state->nil);
     return 0;
+}
+
+void
+consmodule_free(void *self)
+{
+    freelist_clear((consmodule_state *)self);
+    fprintf(stderr, "cleared freelist\n");
+    consmodule_clear((PyObject *)self);
 }
 
 static struct PyModuleDef consmodule = {

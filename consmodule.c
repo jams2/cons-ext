@@ -360,6 +360,41 @@ Cons_richcompare(PyObject *self, PyObject *other, int op)
     return PyObject_RichCompare(this, that, op);
 }
 
+/* Simplified xxHash - see https://github.com/Cyan4973/xxHash/blob/master/doc/xxhash_spec.md and
+   tupleobject.c
+ */
+#if SIZEOF_PY_UHASH_T > 4
+#define _PyHASH_XXPRIME_1 ((Py_uhash_t)11400714785074694791ULL)
+#define _PyHASH_XXPRIME_2 ((Py_uhash_t)14029467366897019727ULL)
+#define _PyHASH_XXPRIME_5 ((Py_uhash_t)2870177450012600261ULL)
+#define _PyHASH_XXROTATE(x) ((x << 31) | (x >> 33)) /* Rotate left 31 bits */
+#else
+#define _PyHASH_XXPRIME_1 ((Py_uhash_t)2654435761UL)
+#define _PyHASH_XXPRIME_2 ((Py_uhash_t)2246822519UL)
+#define _PyHASH_XXPRIME_5 ((Py_uhash_t)374761393UL)
+#define _PyHASH_XXROTATE(x) ((x << 13) | (x >> 19)) /* Rotate left 13 bits */
+#endif
+
+static Py_hash_t
+Cons_hash(ConsObject *cons)
+{
+    PyObject *objs[2] = {cons->head, cons->tail};
+    Py_uhash_t acc = _PyHASH_XXPRIME_5;
+
+    for (int i = 0; i < 2; i++) {
+        Py_uhash_t lane = PyObject_Hash(objs[i]);
+        if (lane == (Py_uhash_t)-1)
+            return -1;
+        acc += lane * _PyHASH_XXPRIME_2;
+        acc = _PyHASH_XXROTATE(acc);
+        acc *= _PyHASH_XXPRIME_1;
+    }
+    /* Adding the length complicates matters (do cons(1, 2) and cons(1, nil()) have the same length
+       wrt hashing?) so leave it - the xxHash spec allows length to be zero.
+     */
+    return acc;
+}
+
 static PyMemberDef Cons_members[] = {
     {"head", T_OBJECT_EX, offsetof(ConsObject, head), READONLY, "cons head"},
     {"tail", T_OBJECT_EX, offsetof(ConsObject, tail), READONLY, "cons tail"},
@@ -389,6 +424,7 @@ static PyType_Slot Cons_Type_Slots[] = {
     {Py_tp_repr, Cons_repr},
     {Py_tp_methods, Cons_methods},
     {Py_tp_richcompare, Cons_richcompare},
+    {Py_tp_hash, Cons_hash},
     {0, NULL},
 };
 

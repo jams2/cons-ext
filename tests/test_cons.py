@@ -150,3 +150,19 @@ def test_cons_richcompare(op, a, b, expected):
 def test_cons_to_list():
     cons_list = cons.from_xs(range(100))
     assert cons_list.to_list() == list(range(100))
+
+
+def test_cons_hashable():
+    d = {cons(1, 2): "hello"}
+    assert cons(1, 2) in d
+
+
+def test_hash_equality():
+    a = hash(cons(1, cons(2, cons(3, nil()))))
+    b = hash(cons(1, cons(2, cons(3, nil()))))
+    assert a == b
+
+
+def test_not_hashable_when_members_not_hashable():
+    with pytest.raises(TypeError):
+        hash(cons([1], nil()))

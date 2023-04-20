@@ -27,3 +27,8 @@ def test_identity_preserved_across_imports():
     import fastcons as fastcons_2
 
     assert x is fastcons_2.nil()
+
+
+def test_hashable():
+    d = {nil(): "hello"}
+    assert nil() in d

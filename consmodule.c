@@ -31,6 +31,7 @@
 #define CDR(ptr) (((ConsObject *)ptr)->tail)
 #define SET_CAR(op, value) ((ConsObject *)op)->head = value
 #define SET_CDR(op, value) ((ConsObject *)op)->tail = value
+#define SET_LIST_LEN(op, i) ((ConsObject *)op)->list_len = i
 #define Cons_NEW(cons_type) PyObject_GC_New(ConsObject, (PyTypeObject *)cons_type)
 #define Cons_NEW_PY(cons_type) \
     (PyObject *)PyObject_GC_New(ConsObject, (PyTypeObject *)cons_type)
@@ -239,7 +240,8 @@ lift(PyObject *, PyObject *, PyObject *);
 static PyObject *
 lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
 {
-    if (PyObject_Size(op) == 0) {
+    int nitems = (int)PyObject_Size(op);
+    if (nitems == 0) {
         Py_INCREF(nil);
         return nil;
     }
@@ -260,9 +262,10 @@ lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
         PyObject *pair = Cons_NEW_PY(cons_type);
         if (pair == NULL)
             return NULL;
-        /* car and cdr returned from recursive lift calls, so INCREF already called */
+        /* car and cdr returned from recursive lift calls, so refcount already set */
         SET_CAR(pair, car);
         SET_CDR(pair, cdr);
+        SET_LIST_LEN(pair, 0);
         *current = pair;
         current++;
     }
@@ -277,6 +280,7 @@ lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
             return NULL;
         SET_CAR(sentinel, *current);
         SET_CDR(sentinel, xs);
+        SET_LIST_LEN(sentinel, nitems - (current - items));
         xs = sentinel;
     }
     PyMem_RawFree(items);
@@ -287,7 +291,7 @@ static PyObject *
 lift(PyObject *op, PyObject *cons_type, PyObject *nil)
 {
     if (PyDict_Check(op)) {
-      return lift_dict(op, cons_type, nil);
+        return lift_dict(op, cons_type, nil);
     }
     else {
         Py_INCREF(op);

@@ -166,3 +166,20 @@ def test_hash_equality():
 def test_not_hashable_when_members_not_hashable():
     with pytest.raises(TypeError):
         hash(cons([1], nil()))
+
+
+def test_lift_dict():
+    assert cons.lift({1: 2, "a": 3, (3,): [1, 2]}) == cons(
+        cons(1, 2),
+        cons(
+            cons("a", 3),
+            cons(
+                cons((3,), [1, 2]),
+                nil(),
+            ),
+        ),
+    )
+
+
+def test_lift_empty_dict():
+    assert cons.lift({}) == nil()

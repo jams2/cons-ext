@@ -29,6 +29,11 @@
 #define LIST_LEN(ptr) (((ConsObject *)ptr)->list_len)
 #define CAR(ptr) (((ConsObject *)ptr)->head)
 #define CDR(ptr) (((ConsObject *)ptr)->tail)
+#define SET_CAR(op, value) ((ConsObject *)op)->head = value
+#define SET_CDR(op, value) ((ConsObject *)op)->tail = value
+#define Cons_NEW(cons_type) PyObject_GC_New(ConsObject, (PyTypeObject *)cons_type)
+#define Cons_NEW_PY(cons_type) \
+    (PyObject *)PyObject_GC_New(ConsObject, (PyTypeObject *)cons_type)
 
 static struct PyModuleDef consmodule;
 
@@ -104,7 +109,7 @@ typedef struct {
 PyObject *
 Cons_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    ConsObject *self = (ConsObject *)type->tp_alloc(type, 0);
+    ConsObject *self = (ConsObject *)(type->tp_alloc(type, 0));
     if (self == NULL) {
         return NULL;
     }
@@ -226,6 +231,85 @@ Cons_from_xs(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
 
     XDECREF_AND_NULLIFY(tp);
     return result;
+}
+
+static PyObject *
+lift(PyObject *, PyObject *, PyObject *);
+
+static PyObject *
+lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
+{
+    if (PyObject_Size(op) == 0) {
+        Py_INCREF(nil);
+        return nil;
+    }
+    PyObject **items = PyMem_RawCalloc(PyObject_Size(op), sizeof(PyObject *));
+    if (items == NULL)
+        return NULL;
+    PyObject **current = items;
+
+    PyObject *key, *value, *prev = NULL, *head = NULL;
+    Py_ssize_t pos = 0;
+    while (PyDict_Next(op, &pos, &key, &value)) {
+        PyObject *car, *cdr;
+        if ((car = lift(key, cons_type, nil)) == NULL)
+            return NULL;
+        if ((cdr = lift(value, cons_type, nil)) == NULL)
+            return NULL;
+
+        PyObject *pair = Cons_NEW_PY(cons_type);
+        if (pair == NULL)
+            return NULL;
+        /* car and cdr returned from recursive lift calls, so INCREF already called */
+        SET_CAR(pair, car);
+        SET_CDR(pair, cdr);
+        *current = pair;
+        current++;
+    }
+
+    Py_INCREF(nil);
+    PyObject *xs = nil, *sentinel = NULL;
+    /* current is 1 past bounds, decrement it first */
+    while (--current >= items) {
+        /* refcount for objs in items already 1 from PyObject_New */
+        sentinel = Cons_NEW_PY(cons_type);
+        if (sentinel == NULL)
+            return NULL;
+        SET_CAR(sentinel, *current);
+        SET_CDR(sentinel, xs);
+        xs = sentinel;
+    }
+    PyMem_RawFree(items);
+    return xs;
+}
+
+static PyObject *
+lift(PyObject *op, PyObject *cons_type, PyObject *nil)
+{
+    if (PyDict_Check(op)) {
+      return lift_dict(op, cons_type, nil);
+    }
+    else {
+        Py_INCREF(op);
+        return op;
+    }
+}
+
+PyObject *
+Cons_lift(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+          Py_ssize_t nargs, PyObject *kwnames)
+{
+    if (nargs != 1) {
+        PyErr_SetString(PyExc_TypeError, "cons.lift takes exactly one argument");
+        return NULL;
+    }
+
+    consmodule_state *state = PyType_GetModuleState(defining_class);
+    if (state == NULL)
+        return NULL;
+
+    PyObject *op = args[0];
+    return lift(op, state->ConsType, state->nil);
 }
 
 PyObject *
@@ -360,9 +444,9 @@ Cons_richcompare(PyObject *self, PyObject *other, int op)
     return PyObject_RichCompare(this, that, op);
 }
 
-/* Simplified xxHash - see https://github.com/Cyan4973/xxHash/blob/master/doc/xxhash_spec.md and
-   tupleobject.c
- */
+/* Simplified xxHash - see https://github.com/Cyan4973/xxHash/blob/master/doc/xxhash_spec.md
+   and tupleobject.c
+*/
 #if SIZEOF_PY_UHASH_T > 4
 #define _PyHASH_XXPRIME_1 ((Py_uhash_t)11400714785074694791ULL)
 #define _PyHASH_XXPRIME_2 ((Py_uhash_t)14029467366897019727ULL)
@@ -389,9 +473,9 @@ Cons_hash(ConsObject *cons)
         acc = _PyHASH_XXROTATE(acc);
         acc *= _PyHASH_XXPRIME_1;
     }
-    /* Adding the length complicates matters (do cons(1, 2) and cons(1, nil()) have the same length
-       wrt hashing?) so leave it - the xxHash spec allows length to be zero.
-     */
+    /* Adding the length complicates matters (do cons(1, 2) and cons(1, nil()) have the same
+       length wrt hashing?) so leave it - the xxHash spec allows length to be zero.
+    */
     return acc;
 }
 
@@ -403,12 +487,16 @@ static PyMemberDef Cons_members[] = {
 
 PyDoc_STRVAR(from_xs_doc, "Create a cons list from a sequence or iterable");
 PyDoc_STRVAR(to_list_doc, "Convert a proper const list to a Python list");
+PyDoc_STRVAR(lift_doc,
+             "Recursively convert a Python sequence and its sub-sequences to a conses");
 
 static PyMethodDef Cons_methods[] = {
     {"from_xs", (PyCFunction)Cons_from_xs,
      METH_METHOD | METH_FASTCALL | METH_KEYWORDS | METH_CLASS, from_xs_doc},
     {"to_list", (PyCFunction)Cons_to_list, METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      to_list_doc},
+    {"lift", (PyCFunction)Cons_lift, METH_METHOD | METH_FASTCALL | METH_KEYWORDS | METH_CLASS,
+     lift_doc},
     {NULL},
 };
 

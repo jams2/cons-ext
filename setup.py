@@ -3,7 +3,7 @@ import sysconfig
 
 from setuptools import Extension, setup
 
-_DEBUG = int(os.environ.get("CONS_DEBUG")) == 1
+_DEBUG = int(os.environ.get("CONS_DEBUG", 0)) == 1
 # Generally I write code so that if DEBUG is defined as 0 then all optimisations
 # are off and asserts are enabled. Typically run times of these builds are x2 to x10
 # release builds.

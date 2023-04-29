@@ -168,25 +168,29 @@ Cons_dealloc(ConsObject *self)
     Py_TRASHCAN_END;
 }
 
-PyObject *
-Cons_from_fast(PyObject *xs, consmodule_state *state)
+static inline PyObject *
+identity(PyObject *op, PyObject *cons_type, PyObject *nil)
 {
-    PyObject *nil = state->nil;
-    Py_INCREF(nil);
-    PyObject *cons = state->ConsType;
+    return op;
+}
 
+PyObject *
+Cons_from_fast_with(PyObject *xs, PyObject *cons_type, PyObject *nil,
+                    PyObject *(*f)(PyObject *, PyObject *, PyObject *))
+{
     Py_ssize_t len = PySequence_Fast_GET_SIZE(xs);
     PyObject *result = nil, *item = NULL, *sentinel = NULL;
+    Py_INCREF(nil);
     for (Py_ssize_t i = len - 1; i >= 0; i--) {
         item = PySequence_Fast_GET_ITEM(xs, i);
         Py_INCREF(item);
-        sentinel = Cons_NEW_PY(cons);
+        sentinel = Cons_NEW_PY(cons_type);
         if (sentinel == NULL) {
             Py_DECREF(item);
             Py_DECREF(result);
             return NULL;
         }
-        SET_CAR(sentinel, item);
+        SET_CAR(sentinel, f(item, cons_type, nil));
         SET_CDR(sentinel, result);
 
         /* 1 on first iteration, up to len on head of list */
@@ -222,7 +226,7 @@ Cons_from_xs(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
     }
 
     if ((xs = PySequence_Fast(xs, "Expected a sequence or iterable")) != NULL) {
-        result = Cons_from_fast(xs, state);
+        result = Cons_from_fast_with(xs, state->ConsType, state->nil, &identity);
         DECREF_AND_NULLIFY(xs);
     }
 
@@ -241,6 +245,8 @@ lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
         Py_INCREF(nil);
         return nil;
     }
+
+    // TODO: check failure cases below and where this needs to be freed
     PyObject **items = PyMem_RawCalloc(PyObject_Size(op), sizeof(PyObject *));
     if (items == NULL)
         return NULL;
@@ -286,9 +292,10 @@ lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
 static PyObject *
 lift(PyObject *op, PyObject *cons_type, PyObject *nil)
 {
-    if (PyDict_Check(op)) {
+    if (PyDict_Check(op))
         return lift_dict(op, cons_type, nil);
-    }
+    else if (PyList_Check(op) || PyTuple_Check(op))
+        return Cons_from_fast_with(op, cons_type, nil, &lift);
     else {
         Py_INCREF(op);
         return op;

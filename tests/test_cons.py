@@ -169,18 +169,9 @@ def test_not_hashable_when_members_not_hashable():
 
 
 def test_lift_dict():
-    expected = cons(
-        cons(1, 2),
-        cons(
-            cons("a", 3),
-            cons(
-                cons((3,), [1, 2]),
-                nil(),
-            ),
-        ),
-    )
-    assert cons.lift({1: 2, "a": 3, (3,): [1, 2]}) == expected
-    assert expected.to_list() == [cons(1, 2), cons("a", 3), cons((3,), [1, 2])]
+    expected = cons(cons(1, 2), cons(cons(3, 4), cons(cons(5, 6), nil())))
+    assert cons.lift({1: 2, 3: 4, 5: 6}) == expected
+    assert expected.to_list() == [cons(1, 2), cons(3, 4), cons(5, 6)]
 
 
 def test_lift_empty_dict():

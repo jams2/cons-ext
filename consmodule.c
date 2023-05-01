@@ -36,6 +36,9 @@
 #define Cons_NEW_PY(cons_type) \
     (PyObject *)PyObject_GC_New(ConsObject, (PyTypeObject *)cons_type)
 
+// (PyObject *x, (PyObject *)ConsType, (PyObject *)nil) -> PyObject *f(x)
+typedef PyObject *(*cmapfn_t)(PyObject *, PyObject *, PyObject *);
+
 static struct PyModuleDef consmodule;
 
 typedef struct {
@@ -175,8 +178,7 @@ identity(PyObject *op, PyObject *cons_type, PyObject *nil)
 }
 
 PyObject *
-Cons_from_fast_with(PyObject *xs, PyObject *cons_type, PyObject *nil,
-                    PyObject *(*f)(PyObject *, PyObject *, PyObject *))
+Cons_from_fast_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f)
 {
     Py_ssize_t len = PySequence_Fast_GET_SIZE(xs);
     PyObject *result = nil, *item = NULL, *sentinel = NULL;

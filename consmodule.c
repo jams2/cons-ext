@@ -1,11 +1,12 @@
 /****
  * Consider these all "maybes" for now:
  *
+ * TODO: provide map and reduce (foldl,foldr) functions
  * TODO: add to_str, to_tuple, to_bytes (?)
  * TODO: make cons iterable, so it can be unpacked into a 2-tuple
  * TODO: provide a to_list_iter method, which iterates over each member of a proper cons list
  *       - see tupleobject.c, PyTupleIter_Type
- * TODO: provide map and reduce functions
+ *
  ****/
 
 #define PY_SSIZE_T_CLEAN
@@ -35,7 +36,6 @@ typedef struct {
 } consmodule_state;
 
 /* The Nil type */
-
 typedef struct {
     PyObject_HEAD
 } NilObject;
@@ -90,7 +90,6 @@ static PyType_Spec Nil_Type_Spec = {
 };
 
 /* The Cons type */
-
 typedef struct {
     PyObject_HEAD PyObject *head;
     PyObject *tail;

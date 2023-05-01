@@ -1,4 +1,5 @@
 import operator
+from collections import namedtuple
 
 import pytest
 from fastcons import cons, nil
@@ -179,6 +180,11 @@ def test_lift_dict(xs, expected):
     assert repr(cons.lift(xs)) == expected
 
 
+@pytest.mark.parametrize("x", ["foo", b"foo", 123, 123.0])
+def test_lift_atomics(x):
+    assert cons.lift(x) == x
+
+
 @pytest.mark.parametrize(
     "sequence",
     [
@@ -204,4 +210,114 @@ def test_lift_empty_sequences(sequence):
     ],
 )
 def test_lift_generator(xs, expected):
+    assert repr(cons.lift(xs)) == expected
+
+
+def test_lift_namedtuple():
+    Foo = namedtuple("Foo", "foo bar baz")
+    assert repr(cons.lift(Foo("a", "b", "c"))) == "('a' 'b' 'c')"
+
+
+@pytest.mark.parametrize(
+    ("xs", "expected"),
+    [
+        ([1, 2, 3], "(1 2 3)"),
+        ([["a"], ["b"], ["c"]], "(('a') ('b') ('c'))"),
+        ([[["a"]], [["b"]], [["c"]]], "((('a')) (('b')) (('c')))"),
+    ],
+)
+def test_lift_list(xs, expected):
+    assert repr(cons.lift(xs)) == expected
+
+
+@pytest.mark.parametrize(
+    ("xs", "expected"),
+    [
+        ((1, 2, 3), "(1 2 3)"),
+        ((("a",), ("b",), ("c",)), "(('a') ('b') ('c'))"),
+        (((("a",),), (("b",),), (("c",),)), "((('a')) (('b')) (('c')))"),
+    ],
+)
+def test_lift_tuples(xs, expected):
+    assert repr(cons.lift(xs)) == expected
+
+
+@pytest.mark.parametrize(
+    ("xs", "expected"),
+    [
+        (
+            [
+                {"a": [1, 2, 3], "b": [4, 5, 6]},
+                {"c": [7, 8, 9], "d": [10, 11, 12]},
+            ],
+            "((('a' 1 2 3) ('b' 4 5 6)) (('c' 7 8 9) ('d' 10 11 12)))",
+        ),
+        (
+            [
+                {"a": (1, 2, 3), "b": (4, 5, 6)},
+                {"c": (7, 8, 9), "d": (10, 11, 12)},
+            ],
+            "((('a' 1 2 3) ('b' 4 5 6)) (('c' 7 8 9) ('d' 10 11 12)))",
+        ),
+        (
+            [
+                {"a": (x for x in range(3)), "b": (x for x in range(3))},
+                {"c": (x for x in range(3)), "d": (x for x in range(3))},
+            ],
+            "((('a' 0 1 2) ('b' 0 1 2)) (('c' 0 1 2) ('d' 0 1 2)))",
+        ),
+        (
+            [
+                {"a": list(range(3)), "b": list(range(3))},
+                {"c": list(range(3)), "d": list(range(3))},
+            ],
+            "((('a' 0 1 2) ('b' 0 1 2)) (('c' 0 1 2) ('d' 0 1 2)))",
+        ),
+        (
+            {
+                "a": [1, 2, 3],
+                "b": (4, 5, 6),
+                "c": (x for x in range(3)),
+                "d": list(range(3)),
+            },
+            "(('a' 1 2 3) ('b' 4 5 6) ('c' 0 1 2) ('d' 0 1 2))",
+        ),
+        (
+            (
+                [1, 2, 3],
+                (4, 5, 6),
+                (x for x in range(3)),
+                list(range(3)),
+            ),
+            "((1 2 3) (4 5 6) (0 1 2) (0 1 2))",
+        ),
+        (
+            (
+                (x for x in range(3)),
+                [1, 2, 3],
+                (4, 5, 6),
+                list(range(3)),
+            ),
+            "((0 1 2) (1 2 3) (4 5 6) (0 1 2))",
+        ),
+        (
+            [
+                {"a": [1, 2, 3], "b": [4, 5, 6]},
+                {"c": [7, 8, 9], "d": [10, 11, 12]},
+                [
+                    {"e": [13, 14, 15], "f": [16, 17, 18]},
+                    {"g": [19, 20, 21], "h": [22, 23, 24]},
+                ],
+                (
+                    {"i": [25, 26, 27], "j": [28, 29, 30]},
+                    {"k": [31, 32, 33], "l": [34, 35, 36]},
+                ),
+            ],
+            "((('a' 1 2 3) ('b' 4 5 6)) (('c' 7 8 9) ('d' 10 11 12)) "
+            "((('e' 13 14 15) ('f' 16 17 18)) (('g' 19 20 21) ('h' 22 23 24))) "
+            "((('i' 25 26 27) ('j' 28 29 30)) (('k' 31 32 33) ('l' 34 35 36))))",
+        ),
+    ],
+)
+def test_lift_nested(xs, expected):
     assert repr(cons.lift(xs)) == expected

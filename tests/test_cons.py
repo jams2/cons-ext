@@ -168,11 +168,31 @@ def test_not_hashable_when_members_not_hashable():
         hash(cons([1], nil()))
 
 
-def test_lift_dict():
-    expected = cons(cons(1, 2), cons(cons(3, 4), cons(cons(5, 6), nil())))
-    assert cons.lift({1: 2, 3: 4, 5: 6}) == expected
-    assert expected.to_list() == [cons(1, 2), cons(3, 4), cons(5, 6)]
+@pytest.mark.parametrize(
+    ("xs", "expected"),
+    [
+        ({1: 2, 3: 4, 5: 6}, "((1 . 2) (3 . 4) (5 . 6))"),
+        ({"a": {1: 2}, "b": {3: 4}}, "(('a' (1 . 2)) ('b' (3 . 4)))"),
+    ],
+)
+def test_lift_dict(xs, expected):
+    assert repr(cons.lift(xs)) == expected
 
 
 def test_lift_empty_dict():
     assert cons.lift({}) == nil()
+
+
+@pytest.mark.parametrize(
+    ("xs", "expected"),
+    [
+        ((x for x in range(10)), "(0 1 2 3 4 5 6 7 8 9)"),
+        (
+            ((x, y) for x, y in zip(range(7), range(7))),
+            "((0 0) (1 1) (2 2) (3 3) (4 4) (5 5) (6 6))",
+        ),
+        (((x for x in range(2)) for _ in range(3)), "((0 1) (0 1) (0 1))"),
+    ],
+)
+def test_lift_generator(xs, expected):
+    assert repr(cons.lift(xs)) == expected

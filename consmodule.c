@@ -1,7 +1,6 @@
 /****
  * Consider these all "maybes" for now:
  *
- * TODO: add recursive from_xs method (cons.rfrom_xs)
  * TODO: add to_str, to_tuple, to_bytes (?)
  * TODO: make cons iterable, so it can be unpacked into a 2-tuple
  * TODO: provide a to_list_iter method, which iterates over each member of a proper cons list
@@ -169,7 +168,7 @@ PyObject *
 Cons_from_fast_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f)
 {
     Py_ssize_t len = PySequence_Fast_GET_SIZE(xs);
-    PyObject *result = nil, *item = NULL, *current = NULL;
+    PyObject *result = nil, *item = NULL, *current = NULL, *tmp = NULL;
     Py_INCREF(nil);
     for (Py_ssize_t i = len - 1; i >= 0; i--) {
         item = PySequence_Fast_GET_ITEM(xs, i);
@@ -180,7 +179,14 @@ Cons_from_fast_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f
             Py_DECREF(result);
             return NULL;
         }
-        SET_CAR(current, f(item, cons_type, nil));
+
+        tmp = f(item, cons_type, nil);
+        if (tmp == NULL) {
+            Py_DECREF(item);
+            Py_DECREF(result);
+            return NULL;
+        }
+        SET_CAR(current, tmp);
         SET_CDR(current, result);
         PyObject_GC_Track(current);
         SET_IS_LIST(current, true);
@@ -200,18 +206,27 @@ Cons_from_gen_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f)
             Py_DECREF(item);
             return NULL;
         }
-        SET_CAR(tmp, item);
+
+        PyObject *_item = f(item, cons_type, nil);
+        if (_item == NULL) {
+            Py_DECREF(item);
+            return NULL;
+        }
+        SET_CAR(tmp, _item);
         SET_IS_LIST(tmp, true);
 
-        if (head == NULL) {
+        if (head == NULL)
             head = current = tmp;
-        }
         else {
             SET_CDR(current, tmp);
             PyObject_GC_Track(current);
             current = tmp;
         }
     }
+
+    if (current == NULL)
+        return NULL;
+
     Py_IncRef(nil);
     SET_CDR(current, nil);
     PyObject_GC_Track(current);
@@ -315,6 +330,8 @@ lift(PyObject *op, PyObject *cons_type, PyObject *nil)
 {
     if (PyDict_Check(op))
         return lift_dict(op, cons_type, nil);
+    else if (PyGen_Check(op))
+        return Cons_from_gen_with(op, cons_type, nil, &lift);
     else if (PyList_Check(op) || PyTuple_Check(op))
         return Cons_from_fast_with(op, cons_type, nil, &lift);
     else {

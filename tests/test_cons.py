@@ -179,8 +179,17 @@ def test_lift_dict(xs, expected):
     assert repr(cons.lift(xs)) == expected
 
 
-def test_lift_empty_dict():
-    assert cons.lift({}) == nil()
+@pytest.mark.parametrize(
+    "sequence",
+    [
+        (),
+        {},
+        [],
+        (x for x in []),
+    ],
+)
+def test_lift_empty_sequences(sequence):
+    assert cons.lift(sequence) == nil()
 
 
 @pytest.mark.parametrize(

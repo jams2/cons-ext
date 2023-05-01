@@ -167,8 +167,10 @@ PyObject *
 Cons_from_fast_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f)
 {
     Py_ssize_t len = PySequence_Fast_GET_SIZE(xs);
-    PyObject *result = nil, *item = NULL, *current = NULL, *tmp = NULL;
+
+    PyObject *result = nil;
     Py_INCREF(nil);
+    PyObject *item = NULL, *current = NULL, *tmp = NULL;
     for (Py_ssize_t i = len - 1; i >= 0; i--) {
         item = PySequence_Fast_GET_ITEM(xs, i);
         Py_INCREF(item);
@@ -223,8 +225,15 @@ Cons_from_gen_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f)
         }
     }
 
-    if (current == NULL)
-        return NULL;
+    if (current == NULL) {
+        if (PyErr_Occurred())
+            return NULL;
+        else {
+            /* Empty generator */
+            Py_INCREF(nil);
+            return nil;
+        }
+    }
 
     Py_IncRef(nil);
     SET_CDR(current, nil);

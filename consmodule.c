@@ -12,31 +12,19 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <structmember.h>
+#include <stdbool.h>
 
-#define DECREF_AND_NULLIFY(ptr) \
-    do {                        \
-        Py_DECREF(ptr);         \
-        ptr = NULL;             \
-    } while (0)
-
-#define XDECREF_AND_NULLIFY(ptr) \
-    do {                         \
-        Py_XDECREF(ptr);         \
-        ptr = NULL;              \
-    } while (0)
-
-#define IS_LIST(ptr) (((ConsObject *)ptr)->list_len > 0)
-#define LIST_LEN(ptr) (((ConsObject *)ptr)->list_len)
+#define IS_LIST(ptr) (((ConsObject *)ptr)->is_list)
 #define CAR(ptr) (((ConsObject *)ptr)->head)
 #define CDR(ptr) (((ConsObject *)ptr)->tail)
 #define SET_CAR(op, value) ((ConsObject *)op)->head = value
 #define SET_CDR(op, value) ((ConsObject *)op)->tail = value
-#define SET_LIST_LEN(op, i) ((ConsObject *)op)->list_len = i
+#define SET_IS_LIST(op, b) ((ConsObject *)op)->is_list = b
 #define Cons_NEW(cons_type) PyObject_GC_New(ConsObject, (PyTypeObject *)cons_type)
 #define Cons_NEW_PY(cons_type) \
     (PyObject *)PyObject_GC_New(ConsObject, (PyTypeObject *)cons_type)
 
-// (PyObject *x, (PyObject *)ConsType, (PyObject *)nil) -> PyObject *f(x)
+// ((PyObject *)x, (PyObject *)ConsType, (PyObject *)nil) -> (PyObject *)y
 typedef PyObject *(*cmapfn_t)(PyObject *, PyObject *, PyObject *);
 
 static struct PyModuleDef consmodule;
@@ -107,7 +95,7 @@ static PyType_Spec Nil_Type_Spec = {
 typedef struct {
     PyObject_HEAD PyObject *head;
     PyObject *tail;
-    int list_len;
+    bool is_list;
 } ConsObject;
 
 PyObject *
@@ -130,11 +118,11 @@ Cons_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         return NULL;
 
     if (Py_Is(tail, state->nil))
-        self->list_len = 1;
-    else if (Py_IS_TYPE(tail, cons))
-        self->list_len = IS_LIST(tail) ? 1 + LIST_LEN(tail) : -1;
+        self->is_list = true;
+    else if (Py_IS_TYPE(tail, cons_type))
+        self->is_list = IS_LIST(tail);
     else
-        self->list_len = 0;
+        self->is_list = false;
 
     Py_INCREF(head);
     self->head = head;
@@ -195,13 +183,38 @@ Cons_from_fast_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f
         SET_CAR(sentinel, f(item, cons_type, nil));
         SET_CDR(sentinel, result);
         PyObject_GC_Track(sentinel);
-
-        /* 1 on first iteration, up to len on head of list */
-        SET_LIST_LEN(sentinel, len - i);
+        SET_IS_LIST(sentinel, true);
         result = sentinel;
     }
 
     return result;
+}
+
+PyObject *
+Cons_from_gen_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f)
+{
+    PyObject *head = NULL, *current = NULL, *item = NULL, *tmp = NULL;
+    while ((item = PyIter_Next(xs)) != NULL) {
+        tmp = Cons_NEW_PY(cons_type);
+        if (tmp == NULL) {
+            Py_DECREF(item);
+            return NULL;
+        }
+        SET_CAR(tmp, item);
+
+        if (head == NULL) {
+            head = current = tmp;
+        }
+        else {
+            SET_CDR(current, tmp);
+            PyObject_GC_Track(current);
+            current = tmp;
+        }
+    }
+    Py_IncRef(nil);
+    SET_CDR(current, nil);
+    PyObject_GC_Track(current);
+    return head;
 }
 
 PyObject *
@@ -217,23 +230,15 @@ Cons_from_xs(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
     if (state == NULL)
         return NULL;
 
-    PyObject *xs = args[0], *tp = NULL, *result = NULL;
-
-    if (PyGen_Check(xs)) {
-        // We should iterate in reverse order, so need a concrete sequence.
-        // Converting a generator to a tuple is not as fast as iterating directly over
-        // the generator, but much faster than converting it to a list or relying on
-        // PySequence_Fast.
-        tp = PySequence_Tuple(xs);
-        xs = tp;
-    }
-
-    if ((xs = PySequence_Fast(xs, "Expected a sequence or iterable")) != NULL) {
+    PyObject *xs = args[0], *result = NULL;
+    if (PyGen_Check(xs))
+        result = Cons_from_gen_with(xs, state->ConsType, state->nil, &identity);
+    else if ((xs = PySequence_Fast(xs, "Expected a sequence or iterable")) != NULL)
         result = Cons_from_fast_with(xs, state->ConsType, state->nil, &identity);
-        DECREF_AND_NULLIFY(xs);
-    }
+    else
+        return NULL;
 
-    XDECREF_AND_NULLIFY(tp);
+    Py_DECREF(xs);
     return result;
 }
 
@@ -243,19 +248,21 @@ lift(PyObject *, PyObject *, PyObject *);
 static PyObject *
 lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
 {
-    int nitems = (int)PyObject_Size(op);
-    if (nitems == 0) {
+    Py_ssize_t nitems = PyObject_Size(op);
+    if (nitems < 0)
+        return NULL;
+    else if (nitems == 0) {
         Py_INCREF(nil);
         return nil;
     }
 
     // TODO: check failure cases below and where this needs to be freed
-    PyObject **items = PyMem_RawCalloc(PyObject_Size(op), sizeof(PyObject *));
+    PyObject **items = PyMem_RawCalloc((size_t)nitems, sizeof(PyObject *));
     if (items == NULL)
         return NULL;
     PyObject **current = items;
 
-    PyObject *key, *value, *prev = NULL, *head = NULL;
+    PyObject *key, *value;
     Py_ssize_t pos = 0;
     while (PyDict_Next(op, &pos, &key, &value)) {
         PyObject *car, *cdr;
@@ -270,7 +277,7 @@ lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
         /* car and cdr returned from recursive lift calls, so refcount already set */
         SET_CAR(pair, car);
         SET_CDR(pair, cdr);
-        SET_LIST_LEN(pair, 0);
+        SET_IS_LIST(pair, false);
         PyObject_GC_Track(pair);
         *current = pair;
         current++;
@@ -287,7 +294,7 @@ lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
         SET_CAR(sentinel, *current);
         SET_CDR(sentinel, xs);
         PyObject_GC_Track(sentinel);
-        SET_LIST_LEN(sentinel, nitems - (current - items));
+        SET_IS_LIST(sentinel, true);
         xs = sentinel;
     }
     PyMem_RawFree(items);
@@ -324,6 +331,15 @@ Cons_lift(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
     return lift(op, state->ConsType, state->nil);
 }
 
+Py_ssize_t
+cons_len(PyObject *op, PyObject *nil)
+{
+    Py_ssize_t len = 0;
+    for (PyObject *pair = op; !Py_Is(pair, nil); len++, pair = CDR(pair))
+        ;
+    return len;
+}
+
 PyObject *
 Cons_to_list(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
              Py_ssize_t nargs, PyObject *kwnames)
@@ -336,10 +352,14 @@ Cons_to_list(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
         PyErr_SetString(PyExc_ValueError, "expected proper cons list");
         return NULL;
     }
+    consmodule_state *state = PyType_GetModuleState(defining_class);
+    if (state == NULL)
+        return NULL;
 
-    PyObject *list = PyList_New(LIST_LEN(self));
+    Py_ssize_t len = cons_len(self, state->nil);
+    PyObject *list = PyList_New(len);
     PyObject *next = self, *head = NULL;
-    for (Py_ssize_t i = 0; i < LIST_LEN(self); i++, next = CDR(next)) {
+    for (Py_ssize_t i = 0; i < len; i++, next = CDR(next)) {
         head = CAR(next);
         Py_INCREF(head);  // PyList_SET_ITEM steals a reference
         PyList_SET_ITEM(list, i, head);
@@ -380,10 +400,10 @@ Cons_repr(PyObject *self)
         if (repr == NULL)
             goto error;
         if (_PyUnicodeWriter_WriteStr(&writer, repr) < 0) {
-            DECREF_AND_NULLIFY(repr);
+            Py_DECREF(repr);
             goto error;
         }
-        DECREF_AND_NULLIFY(repr);
+        Py_DECREF(repr);
 
         tail = CDR(next);
         if (Py_Is(tail, state->nil))
@@ -395,10 +415,10 @@ Cons_repr(PyObject *self)
             if (repr == NULL)
                 goto error;
             if (_PyUnicodeWriter_WriteStr(&writer, repr) < 0) {
-                DECREF_AND_NULLIFY(repr);
+                Py_DECREF(repr);
                 goto error;
             }
-            DECREF_AND_NULLIFY(repr);
+            Py_DECREF(repr);
             break;
         }
         if (_PyUnicodeWriter_WriteChar(&writer, ' ') < 0)
@@ -477,7 +497,7 @@ Cons_hash(ConsObject *cons)
     PyObject *objs[2] = {cons->head, cons->tail};
     Py_uhash_t acc = _PyHASH_XXPRIME_5;
 
-    for (int i = 0; i < 2; i++) {
+    for (size_t i = 0; i < 2; i++) {
         Py_uhash_t lane = PyObject_Hash(objs[i]);
         if (lane == (Py_uhash_t)-1)
             return -1;
@@ -554,10 +574,10 @@ consmodule_exec(PyObject *m)
     PyTuple_SET_ITEM(match_args, 1, PyUnicode_FromString("tail"));
     if (PyDict_SetItemString(((PyTypeObject *)state->ConsType)->tp_dict, "__match_args__",
                              match_args) < 0) {
-        DECREF_AND_NULLIFY(match_args);
+        Py_DECREF(match_args);
         return -1;
     }
-    DECREF_AND_NULLIFY(match_args);
+    Py_DECREF(match_args);
 
     state->NilType = PyType_FromModuleAndSpec(m, &Nil_Type_Spec, NULL);
     if (state->NilType == NULL)

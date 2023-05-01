@@ -14,7 +14,14 @@ _DEBUG_LEVEL = 0
 
 # Common flags for both release and debug builds.
 extra_compile_args = sysconfig.get_config_var("CFLAGS").split()
-extra_compile_args += ["-Wall", "-Wextra", "-pedantic"]
+extra_compile_args += [
+    "-Wall",
+    "-Wextra",
+    "-Wno-unused-parameter",
+    "-Wconversion",
+    "-Wsign-conversion",
+    "-fanalyzer",
+]
 if _DEBUG:
     extra_compile_args += ["-g3", "-O0", "-DDEBUG=%s" % _DEBUG_LEVEL, "-UNDEBUG"]
 else:

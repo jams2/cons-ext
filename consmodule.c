@@ -110,22 +110,21 @@ typedef struct {
 PyObject *
 Cons_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    ConsObject *self = (ConsObject *)(type->tp_alloc(type, 0));
-    if (self == NULL) {
-        return NULL;
-    }
-
-    static char *kwlist[] = {"head", "tail", NULL};
-    PyObject *head = NULL, *tail = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail)) {
-        DECREF_AND_NULLIFY(self);
-        return NULL;
-    }
-
     consmodule_state *state = PyType_GetModuleState(type);
     if (state == NULL)
         return NULL;
-    PyTypeObject *cons = (PyTypeObject *)state->ConsType;
+    PyTypeObject *cons_type = (PyTypeObject *)state->ConsType;
+
+    ConsObject *self = Cons_NEW(cons_type);
+    if (self == NULL)
+        return NULL;
+
+    static char *kwlist[] = {"head", "tail", NULL};
+    PyObject *head = NULL, *tail = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail))
+        /* Don't decref - it will trigger GC, which will cause a segfault as self isn't tracked
+         * yet */
+        return NULL;
 
     if (Py_Is(tail, state->nil))
         self->list_len = 1;
@@ -138,6 +137,7 @@ Cons_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     self->head = head;
     Py_INCREF(tail);
     self->tail = tail;
+    PyObject_GC_Track(self);
     return (PyObject *)self;
 };
 
@@ -192,6 +192,7 @@ Cons_from_fast_with(PyObject *xs, PyObject *cons_type, PyObject *nil,
         }
         SET_CAR(sentinel, f(item, cons_type, nil));
         SET_CDR(sentinel, result);
+        PyObject_GC_Track(sentinel);
 
         /* 1 on first iteration, up to len on head of list */
         SET_LIST_LEN(sentinel, len - i);
@@ -268,6 +269,7 @@ lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
         SET_CAR(pair, car);
         SET_CDR(pair, cdr);
         SET_LIST_LEN(pair, 0);
+        PyObject_GC_Track(pair);
         *current = pair;
         current++;
     }
@@ -282,6 +284,7 @@ lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
             return NULL;
         SET_CAR(sentinel, *current);
         SET_CDR(sentinel, xs);
+        PyObject_GC_Track(sentinel);
         SET_LIST_LEN(sentinel, nitems - (current - items));
         xs = sentinel;
     }

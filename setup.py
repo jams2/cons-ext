@@ -21,6 +21,7 @@ extra_compile_args += [
     "-Wconversion",
     "-Wsign-conversion",
     "-fanalyzer",
+    "--std=c11",
 ]
 if _DEBUG:
     extra_compile_args += ["-g3", "-O0", "-DDEBUG=%s" % _DEBUG_LEVEL, "-UNDEBUG"]

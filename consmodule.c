@@ -169,22 +169,22 @@ PyObject *
 Cons_from_fast_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f)
 {
     Py_ssize_t len = PySequence_Fast_GET_SIZE(xs);
-    PyObject *result = nil, *item = NULL, *sentinel = NULL;
+    PyObject *result = nil, *item = NULL, *current = NULL;
     Py_INCREF(nil);
     for (Py_ssize_t i = len - 1; i >= 0; i--) {
         item = PySequence_Fast_GET_ITEM(xs, i);
         Py_INCREF(item);
-        sentinel = Cons_NEW_PY(cons_type);
-        if (sentinel == NULL) {
+        current = Cons_NEW_PY(cons_type);
+        if (current == NULL) {
             Py_DECREF(item);
             Py_DECREF(result);
             return NULL;
         }
-        SET_CAR(sentinel, f(item, cons_type, nil));
-        SET_CDR(sentinel, result);
-        PyObject_GC_Track(sentinel);
-        SET_IS_LIST(sentinel, true);
-        result = sentinel;
+        SET_CAR(current, f(item, cons_type, nil));
+        SET_CDR(current, result);
+        PyObject_GC_Track(current);
+        SET_IS_LIST(current, true);
+        result = current;
     }
 
     return result;
@@ -201,6 +201,7 @@ Cons_from_gen_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f)
             return NULL;
         }
         SET_CAR(tmp, item);
+        SET_IS_LIST(tmp, true);
 
         if (head == NULL) {
             head = current = tmp;
@@ -256,49 +257,57 @@ lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
         return nil;
     }
 
-    // TODO: check failure cases below and where this needs to be freed
-    PyObject **items = PyMem_RawCalloc((size_t)nitems, sizeof(PyObject *));
-    if (items == NULL)
-        return NULL;
-    PyObject **current = items;
-
     PyObject *key, *value;
     Py_ssize_t pos = 0;
+    PyObject *head = NULL, *current = NULL;
     while (PyDict_Next(op, &pos, &key, &value)) {
-        PyObject *car, *cdr;
+        PyObject *car = NULL, *cdr = NULL, *tmp = NULL;
         if ((car = lift(key, cons_type, nil)) == NULL)
             return NULL;
-        if ((cdr = lift(value, cons_type, nil)) == NULL)
+        if ((cdr = lift(value, cons_type, nil)) == NULL) {
+            Py_DECREF(car);
             return NULL;
+        }
 
         PyObject *pair = Cons_NEW_PY(cons_type);
-        if (pair == NULL)
+        if (pair == NULL) {
+            Py_DECREF(car);
+            Py_DECREF(cdr);
             return NULL;
+        }
+
         /* car and cdr returned from recursive lift calls, so refcount already set */
         SET_CAR(pair, car);
         SET_CDR(pair, cdr);
         SET_IS_LIST(pair, false);
         PyObject_GC_Track(pair);
-        *current = pair;
-        current++;
+
+        tmp = Cons_NEW_PY(cons_type);
+        if (tmp == NULL) {
+            Py_DECREF(pair);
+            Py_XDECREF(head);
+            return NULL;
+        }
+        SET_CAR(tmp, pair);
+        SET_IS_LIST(tmp, true);
+
+        if (head == NULL)
+            head = current = tmp;
+        else {
+            SET_CDR(current, tmp);
+            PyObject_GC_Track(current);
+            current = tmp;
+        }
     }
 
-    Py_INCREF(nil);
-    PyObject *xs = nil, *sentinel = NULL;
-    /* current is 1 past bounds, decrement it first */
-    while (--current >= items) {
-        /* refcount for objs in items already 1 from PyObject_New */
-        sentinel = Cons_NEW_PY(cons_type);
-        if (sentinel == NULL)
-            return NULL;
-        SET_CAR(sentinel, *current);
-        SET_CDR(sentinel, xs);
-        PyObject_GC_Track(sentinel);
-        SET_IS_LIST(sentinel, true);
-        xs = sentinel;
-    }
-    PyMem_RawFree(items);
-    return xs;
+    /* If PyDict_Next failed on the first iteration, current will be NULL */
+    if (current == NULL)
+        return NULL;
+
+    Py_IncRef(nil);
+    SET_CDR(current, nil);
+    PyObject_GC_Track(current);
+    return head;
 }
 
 static PyObject *

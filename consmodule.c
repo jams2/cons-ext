@@ -589,6 +589,56 @@ static PyType_Spec Cons_Type_Spec = {
     .slots = Cons_Type_Slots,
 };
 
+PyDoc_STRVAR(consmodule_assoc_doc,
+             "assoc(object, alist)\n\
+\n\
+Return the first pair in alist whose car is equal to object. Return \
+nil() if object is not found.");
+
+/* module level functions */
+PyObject *
+consmodule_assoc(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
+{
+    if (nargs != 2) {
+        PyErr_SetString(PyExc_TypeError, "assoc requires exactly two positional arguments");
+        return NULL;
+    }
+    PyObject *object = args[0];
+    PyObject *alist = args[1];
+
+    consmodule_state *state = PyModule_GetState(module);
+    if (state == NULL)
+        return NULL;
+
+    if (Py_Is(alist, state->nil)) {
+        Py_INCREF(state->nil);
+        return state->nil;
+    }
+    else if (!Py_IS_TYPE(alist, (PyTypeObject *)state->ConsType) || !IS_LIST(alist)) {
+        PyErr_SetString(
+            PyExc_ValueError,
+            "argument 'alist' to assoc must be a cons list of cons pairs, or nil()");
+        return NULL;
+    }
+
+    for (PyObject *pair = CAR(alist); !Py_Is(alist, state->nil);
+         alist = CDR(alist), pair = CAR(alist)) {
+        if (!Py_IS_TYPE(pair, (PyTypeObject *)state->ConsType)) {
+            PyErr_SetString(PyExc_ValueError,
+                            "'alist' is not a properly formed association list");
+            return NULL;
+        }
+        else if (PyObject_RichCompareBool(object, CAR(pair), Py_EQ)) {
+            Py_INCREF(pair);
+            return pair;
+        }
+    }
+
+    Py_INCREF(state->nil);
+    return state->nil;
+}
+
+/* module initialisation */
 static int
 consmodule_exec(PyObject *m)
 {
@@ -650,12 +700,17 @@ consmodule_clear(PyObject *m)
     return 0;
 }
 
+static PyMethodDef consmodule_methods[] = {
+    {"assoc", (PyCFunction)consmodule_assoc, METH_FASTCALL, consmodule_assoc_doc},
+    {NULL, NULL},
+};
+
 static struct PyModuleDef consmodule = {
     PyModuleDef_HEAD_INIT,
     .m_name = "fastcons",
     .m_doc = "Module exporting cons type",
     .m_size = sizeof(consmodule_state),
-    .m_methods = NULL,
+    .m_methods = consmodule_methods,
     .m_slots = consmodule_slots,
     .m_traverse = consmodule_traverse,
     .m_clear = consmodule_clear,

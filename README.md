@@ -106,6 +106,10 @@ Recursively create a `cons` structure by converting:
 - lists, tuples, and generators to `cons` lists; and
 - dicts to `cons` lists of pairs (association lists).
 
+### `assoc(object, alist)`
+
+Find the first pair in `alist` whose car is equal to `object`, and return that pair. If no pair is found, or `alist` is `nil()`, return `nil()`.
+
 ## License
 
 `fastcons` is released under the MIT license.

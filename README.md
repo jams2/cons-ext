@@ -1,10 +1,10 @@
 # fastcons
 
-Fastcons is a Python extension module that provides an efficient implementation of cons lists.
+Fastcons is a Python extension module that aims to provide an efficient implementation of cons.
 
 The fastcons module provides two types: `nil` and `cons`. The `nil` type represents the empty list, while the cons type represents a pair - an immutable cell containing two elements.
 
-Currently requires Python 3.11.
+Currently requires Python 3.11, and Linux or MacOS.
 
 ## Installation
 
@@ -31,17 +31,17 @@ You can efficiently create `cons` lists from Python sequences using the `cons.fr
 from fastcons import cons, nil
 
 # Create a cons list using the cons function
-lst = cons(1, cons(2, cons(3, nil())))
+xs = cons(1, cons(2, cons(3, nil())))
 
 # Create a cons list from a Python sequence
-lst2 = cons.from_xs([1, 2, 3])
+ys = cons.from_xs([1, 2, 3])
 
 # Access the head and tail of a cons list
-assert lst.head == 1
-assert lst.tail.head == 2
+assert xs.head == 1
+assert xs.tail.head == 2
 
 # Test for equality
-assert lst == lst2
+assert xs == ys
 ```
 
 The `cons` objects are printed using Lisp-style notation, which makes it easier to read long lists.
@@ -53,6 +53,19 @@ The `cons` objects are printed using Lisp-style notation, which makes it easier 
 ('foo' . 'bar')
 >>> cons(cons(1, 2), cons(cons(3, 4), nil()))
 ((1 . 2) (3 . 4))
+```
+
+`cons.lift` can be used to recursively transform dicts, lists, tuples and generators to `cons` objects. dicts will be transformed to cons lists of pairs (association lists or alists), the rest will be transformed to alists.
+
+``` python-console
+>>> cons.lift({'a': 2, 'b': 3})
+(('a' . 2) ('b' . 3))
+>>> cons.lift((1, 2, 3))
+(1 2 3)
+>>> cons.lift(x for x in ('a', 'b', 'c'))
+('a' 'b' 'c')
+>>> cons.lift({x: {x: y}} for x, y in zip(['a', 'b', 'c'], range(1, 4)))
+((('a' ('a' . 1))) (('b' ('b' . 2))) (('c' ('c' . 3))))
 ```
 
 ### Pattern matching
@@ -85,6 +98,13 @@ Returns a `cons` object with the given `head` and `tail`.
 ### `cons.from_xs(xs)`
 
 Returns a `cons` object created from the Python sequence `xs`.
+
+### `cons.lift(xs)`
+
+Recursively create a `cons` structure by converting:
+
+- lists, tuples, and generators to `cons` lists; and
+- dicts to `cons` lists of pairs (association lists).
 
 ## License
 

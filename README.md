@@ -6,6 +6,12 @@ The fastcons module provides two types: `nil` and `cons`. The `nil` type represe
 
 Currently requires Python 3.11, and Linux or MacOS.
 
+* [Installation](#installation)
+* [Usage](#usage)
+  + [Pattern matching](#pattern-matching)
+* [API Reference](#api-reference)
+* [License](#license)
+
 ## Installation
 
 You can install fastcons using pip:
@@ -89,7 +95,7 @@ a = 1, d = nil()
 
 ### `nil()`
 
-Returns the singleton `nil` object.
+Returns the singleton `nil` object. The `nil` object is falsy.
 
 ### `cons(head, tail)`
 
@@ -109,6 +115,11 @@ Recursively create a `cons` structure by converting:
 ### `assoc(object, alist)`
 
 Find the first pair in `alist` whose car is equal to `object`, and return that pair. If no pair is found, or `alist` is `nil()`, return `nil()`.
+
+### `assp(predicate, alist)`
+
+Return the first pair in alist for which the result of calling 'predicate' on its car is truthy. 'predicate' will be called with a single positional argument.
+
 
 ## License
 

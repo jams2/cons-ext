@@ -589,13 +589,13 @@ static PyType_Spec Cons_Type_Spec = {
     .slots = Cons_Type_Slots,
 };
 
+/* module level functions */
 PyDoc_STRVAR(consmodule_assoc_doc,
              "assoc(object, alist)\n\
 \n\
-Return the first pair in alist whose car is equal to object. Return \
+Return the first pair in alist whose car is equal to object. Return\n\
 nil() if object is not found.");
 
-/* module level functions */
 PyObject *
 consmodule_assoc(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
 {
@@ -629,6 +629,63 @@ consmodule_assoc(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
             return NULL;
         }
         else if (PyObject_RichCompareBool(object, CAR(pair), Py_EQ)) {
+            Py_INCREF(pair);
+            return pair;
+        }
+    }
+
+    Py_INCREF(state->nil);
+    return state->nil;
+}
+
+PyDoc_STRVAR(consmodule_assp_doc,
+             "assp(predicate, alist)\n\
+\n\
+Return the first pair in alist for which the result of calling 'predicate'\n\
+on its car is truthy.\n\
+\n\
+'predicate' must be a function that takes a single argument.");
+
+PyObject *
+consmodule_assp(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
+{
+    if (nargs != 2) {
+        PyErr_SetString(PyExc_TypeError, "assp requires exactly two positional arguments");
+        return NULL;
+    }
+    PyObject *predicate = args[0];
+    PyObject *alist = args[1];
+
+    consmodule_state *state = PyModule_GetState(module);
+    if (state == NULL)
+        return NULL;
+
+    if (Py_Is(alist, state->nil)) {
+        Py_INCREF(state->nil);
+        return state->nil;
+    }
+    else if (!Py_IS_TYPE(alist, (PyTypeObject *)state->ConsType) || !IS_LIST(alist)) {
+        PyErr_SetString(
+            PyExc_ValueError,
+            "argument 'alist' to assp must be a cons list of cons pairs, or nil()");
+        return NULL;
+    }
+    else if (!PyFunction_Check(predicate)) {
+        PyErr_SetString(PyExc_ValueError, "argument 'predicate' to assp must be a function");
+        return NULL;
+    }
+
+    for (PyObject *pair = CAR(alist); !Py_Is(alist, state->nil);
+         alist = CDR(alist), pair = CAR(alist)) {
+        if (!Py_IS_TYPE(pair, (PyTypeObject *)state->ConsType)) {
+            PyErr_SetString(PyExc_ValueError,
+                            "'alist' is not a properly formed association list");
+            return NULL;
+        }
+        PyObject *result = PyObject_CallOneArg(predicate, CAR(pair));
+        if (result == NULL)
+            return NULL;
+        else if (PyObject_IsTrue(result)) {
             Py_INCREF(pair);
             return pair;
         }
@@ -702,6 +759,7 @@ consmodule_clear(PyObject *m)
 
 static PyMethodDef consmodule_methods[] = {
     {"assoc", (PyCFunction)consmodule_assoc, METH_FASTCALL, consmodule_assoc_doc},
+    {"assp", (PyCFunction)consmodule_assp, METH_FASTCALL, consmodule_assp_doc},
     {NULL, NULL},
 };
 

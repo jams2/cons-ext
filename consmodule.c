@@ -1,34 +1,31 @@
 /****
  * Consider these all "maybes" for now:
  *
- * TODO: add recursive from_xs method (cons.rfrom_xs)
+ * TODO: provide map and reduce (foldl,foldr) functions
  * TODO: add to_str, to_tuple, to_bytes (?)
  * TODO: make cons iterable, so it can be unpacked into a 2-tuple
  * TODO: provide a to_list_iter method, which iterates over each member of a proper cons list
  *       - see tupleobject.c, PyTupleIter_Type
- * TODO: provide map and reduce functions
+ *
  ****/
 
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <structmember.h>
+#include <stdbool.h>
 
-#define DECREF_AND_NULLIFY(ptr) \
-    do {                        \
-        Py_DECREF(ptr);         \
-        ptr = NULL;             \
-    } while (0)
-
-#define XDECREF_AND_NULLIFY(ptr) \
-    do {                         \
-        Py_XDECREF(ptr);         \
-        ptr = NULL;              \
-    } while (0)
-
-#define IS_LIST(ptr) (((ConsObject *)ptr)->list_len > 0)
-#define LIST_LEN(ptr) (((ConsObject *)ptr)->list_len)
+#define IS_LIST(ptr) (((ConsObject *)ptr)->is_list)
 #define CAR(ptr) (((ConsObject *)ptr)->head)
 #define CDR(ptr) (((ConsObject *)ptr)->tail)
+#define SET_CAR(op, value) ((ConsObject *)op)->head = value
+#define SET_CDR(op, value) ((ConsObject *)op)->tail = value
+#define SET_IS_LIST(op, b) ((ConsObject *)op)->is_list = b
+#define Cons_NEW(cons_type) PyObject_GC_New(ConsObject, (PyTypeObject *)cons_type)
+#define Cons_NEW_PY(cons_type) \
+    (PyObject *)PyObject_GC_New(ConsObject, (PyTypeObject *)cons_type)
+
+// ((PyObject *)x, (PyObject *)ConsType, (PyObject *)nil) -> (PyObject *)y
+typedef PyObject *(*cmapfn_t)(PyObject *, PyObject *, PyObject *);
 
 static struct PyModuleDef consmodule;
 
@@ -39,7 +36,6 @@ typedef struct {
 } consmodule_state;
 
 /* The Nil type */
-
 typedef struct {
     PyObject_HEAD
 } NilObject;
@@ -94,44 +90,43 @@ static PyType_Spec Nil_Type_Spec = {
 };
 
 /* The Cons type */
-
 typedef struct {
     PyObject_HEAD PyObject *head;
     PyObject *tail;
-    int list_len;
+    bool is_list;
 } ConsObject;
 
 PyObject *
 Cons_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    ConsObject *self = (ConsObject *)type->tp_alloc(type, 0);
-    if (self == NULL) {
-        return NULL;
-    }
-
-    static char *kwlist[] = {"head", "tail", NULL};
-    PyObject *head = NULL, *tail = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail)) {
-        DECREF_AND_NULLIFY(self);
-        return NULL;
-    }
-
     consmodule_state *state = PyType_GetModuleState(type);
     if (state == NULL)
         return NULL;
-    PyTypeObject *cons = (PyTypeObject *)state->ConsType;
+    PyTypeObject *cons_type = (PyTypeObject *)state->ConsType;
+
+    ConsObject *self = Cons_NEW(cons_type);
+    if (self == NULL)
+        return NULL;
+
+    static char *kwlist[] = {"head", "tail", NULL};
+    PyObject *head = NULL, *tail = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail))
+        /* Don't decref - it will trigger GC, which will cause a segfault as self isn't tracked
+         * yet */
+        return NULL;
 
     if (Py_Is(tail, state->nil))
-        self->list_len = 1;
-    else if (Py_IS_TYPE(tail, cons))
-        self->list_len = IS_LIST(tail) ? 1 + LIST_LEN(tail) : -1;
+        self->is_list = true;
+    else if (Py_IS_TYPE(tail, cons_type))
+        self->is_list = IS_LIST(tail);
     else
-        self->list_len = 0;
+        self->is_list = false;
 
     Py_INCREF(head);
     self->head = head;
     Py_INCREF(tail);
     self->tail = tail;
+    PyObject_GC_Track(self);
     return (PyObject *)self;
 };
 
@@ -162,37 +157,88 @@ Cons_dealloc(ConsObject *self)
     Py_TRASHCAN_END;
 }
 
-PyObject *
-Cons_from_fast(PyObject *xs, consmodule_state *state)
+static inline PyObject *
+identity(PyObject *op, PyObject *cons_type, PyObject *nil)
 {
-    PyObject *nil = state->nil;
-    Py_INCREF(nil);
-    PyObject *cons = state->ConsType;
+    return op;
+}
 
+PyObject *
+Cons_from_fast_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f)
+{
     Py_ssize_t len = PySequence_Fast_GET_SIZE(xs);
-    PyObject *result = nil, *item;
+
+    PyObject *result = nil;
+    Py_INCREF(nil);
+    PyObject *item = NULL, *current = NULL, *tmp = NULL;
     for (Py_ssize_t i = len - 1; i >= 0; i--) {
         item = PySequence_Fast_GET_ITEM(xs, i);
         Py_INCREF(item);
-        result = PyObject_CallFunctionObjArgs(cons, item, result, NULL);
+        current = Cons_NEW_PY(cons_type);
+        if (current == NULL) {
+            Py_DECREF(item);
+            Py_DECREF(result);
+            return NULL;
+        }
 
-        /* Cons_new increments the ref count for both of its args, so if we don't decrement
-         * the tail here we end up with a memory leak. If result is the return value from
-         * Cons_new, it will have a refcount of 1, so passing it as the tail of the next
-         * Cons_new call will leave it with a refcount of 2. nil may be different as a
-         * single instance is shared.
-         * We need to decrement  after the call to Cons_new so as not to trigger GC before
-         * we actually create the object.
-         * Maybe this can be optimised by creating the object manually rather than calling
-         * the cons Type object.
-         */
-        Py_DECREF(((ConsObject *)result)->tail);
-        DECREF_AND_NULLIFY(item);
-        if (result == NULL)
-            break;
+        tmp = f(item, cons_type, nil);
+        if (tmp == NULL) {
+            Py_DECREF(item);
+            Py_DECREF(result);
+            return NULL;
+        }
+        SET_CAR(current, tmp);
+        SET_CDR(current, result);
+        PyObject_GC_Track(current);
+        SET_IS_LIST(current, true);
+        result = current;
     }
 
     return result;
+}
+
+PyObject *
+Cons_from_gen_with(PyObject *xs, PyObject *cons_type, PyObject *nil, cmapfn_t f)
+{
+    PyObject *head = NULL, *current = NULL, *item = NULL, *tmp = NULL;
+    while ((item = PyIter_Next(xs)) != NULL) {
+        tmp = Cons_NEW_PY(cons_type);
+        if (tmp == NULL) {
+            Py_DECREF(item);
+            return NULL;
+        }
+
+        PyObject *_item = f(item, cons_type, nil);
+        if (_item == NULL) {
+            Py_DECREF(item);
+            return NULL;
+        }
+        SET_CAR(tmp, _item);
+        SET_IS_LIST(tmp, true);
+
+        if (head == NULL)
+            head = current = tmp;
+        else {
+            SET_CDR(current, tmp);
+            PyObject_GC_Track(current);
+            current = tmp;
+        }
+    }
+
+    if (current == NULL) {
+        if (PyErr_Occurred())
+            return NULL;
+        else {
+            /* Empty generator */
+            Py_INCREF(nil);
+            return nil;
+        }
+    }
+
+    Py_IncRef(nil);
+    SET_CDR(current, nil);
+    PyObject_GC_Track(current);
+    return head;
 }
 
 PyObject *
@@ -208,24 +254,124 @@ Cons_from_xs(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
     if (state == NULL)
         return NULL;
 
-    PyObject *xs = args[0], *tp = NULL, *result = NULL;
+    PyObject *xs = args[0], *result = NULL;
+    if (PyGen_Check(xs))
+        result = Cons_from_gen_with(xs, state->ConsType, state->nil, &identity);
+    else if ((xs = PySequence_Fast(xs, "Expected a sequence or iterable")) != NULL)
+        result = Cons_from_fast_with(xs, state->ConsType, state->nil, &identity);
+    else
+        return NULL;
 
-    if (PyGen_Check(xs)) {
-        // We should iterate in reverse order, so need a concrete sequence.
-        // Converting a generator to a tuple is not as fast as iterating directly over
-        // the generator, but much faster than converting it to a list or relying on
-        // PySequence_Fast.
-        tp = PySequence_Tuple(xs);
-        xs = tp;
-    }
-
-    if ((xs = PySequence_Fast(xs, "Expected a sequence or iterable")) != NULL) {
-        result = Cons_from_fast(xs, state);
-        DECREF_AND_NULLIFY(xs);
-    }
-
-    XDECREF_AND_NULLIFY(tp);
+    Py_DECREF(xs);
     return result;
+}
+
+static PyObject *
+lift(PyObject *, PyObject *, PyObject *);
+
+static PyObject *
+lift_dict(PyObject *op, PyObject *cons_type, PyObject *nil)
+{
+    Py_ssize_t nitems = PyObject_Size(op);
+    if (nitems < 0)
+        return NULL;
+    else if (nitems == 0) {
+        Py_INCREF(nil);
+        return nil;
+    }
+
+    PyObject *key, *value;
+    Py_ssize_t pos = 0;
+    PyObject *head = NULL, *current = NULL;
+    while (PyDict_Next(op, &pos, &key, &value)) {
+        PyObject *car = NULL, *cdr = NULL, *tmp = NULL;
+        if ((car = lift(key, cons_type, nil)) == NULL)
+            return NULL;
+        if ((cdr = lift(value, cons_type, nil)) == NULL) {
+            Py_DECREF(car);
+            return NULL;
+        }
+
+        PyObject *pair = Cons_NEW_PY(cons_type);
+        if (pair == NULL) {
+            Py_DECREF(car);
+            Py_DECREF(cdr);
+            return NULL;
+        }
+
+        /* car and cdr returned from recursive lift calls, so refcount already set */
+        SET_CAR(pair, car);
+        SET_CDR(pair, cdr);
+        SET_IS_LIST(pair, false);
+        PyObject_GC_Track(pair);
+
+        tmp = Cons_NEW_PY(cons_type);
+        if (tmp == NULL) {
+            Py_DECREF(pair);
+            Py_XDECREF(head);
+            return NULL;
+        }
+        SET_CAR(tmp, pair);
+        SET_IS_LIST(tmp, true);
+
+        if (head == NULL)
+            head = current = tmp;
+        else {
+            SET_CDR(current, tmp);
+            PyObject_GC_Track(current);
+            current = tmp;
+        }
+    }
+
+    /* If PyDict_Next failed on the first iteration, current will be NULL */
+    if (current == NULL)
+        return NULL;
+
+    Py_IncRef(nil);
+    SET_CDR(current, nil);
+    PyObject_GC_Track(current);
+    return head;
+}
+
+static PyObject *
+lift(PyObject *op, PyObject *cons_type, PyObject *nil)
+{
+    if (PyDict_Check(op))
+        return lift_dict(op, cons_type, nil);
+    else if (PyGen_Check(op))
+        return Cons_from_gen_with(op, cons_type, nil, &lift);
+    else if (PyList_Check(op) || PyTuple_Check(op))
+        return Cons_from_fast_with(op, cons_type, nil, &lift);
+    else {
+        Py_INCREF(op);
+        return op;
+    }
+}
+
+PyObject *
+Cons_lift(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+          Py_ssize_t nargs, PyObject *kwnames)
+{
+    if (nargs != 1) {
+        PyErr_SetString(PyExc_TypeError, "cons.lift takes exactly one argument");
+        return NULL;
+    }
+
+    consmodule_state *state = PyType_GetModuleState(defining_class);
+    if (state == NULL)
+        return NULL;
+
+    PyObject *op = args[0];
+    return lift(op, state->ConsType, state->nil);
+}
+
+Py_ssize_t
+cons_len(PyObject *op, PyObject *nil)
+{
+    Py_ssize_t len = 0;
+    for (PyObject *pair = op; !Py_Is(pair, nil); len++, pair = CDR(pair))
+        ;
+    return len;
 }
 
 PyObject *
@@ -240,10 +386,14 @@ Cons_to_list(PyObject *self, PyTypeObject *defining_class, PyObject *const *args
         PyErr_SetString(PyExc_ValueError, "expected proper cons list");
         return NULL;
     }
+    consmodule_state *state = PyType_GetModuleState(defining_class);
+    if (state == NULL)
+        return NULL;
 
-    PyObject *list = PyList_New(LIST_LEN(self));
+    Py_ssize_t len = cons_len(self, state->nil);
+    PyObject *list = PyList_New(len);
     PyObject *next = self, *head = NULL;
-    for (Py_ssize_t i = 0; i < LIST_LEN(self); i++, next = CDR(next)) {
+    for (Py_ssize_t i = 0; i < len; i++, next = CDR(next)) {
         head = CAR(next);
         Py_INCREF(head);  // PyList_SET_ITEM steals a reference
         PyList_SET_ITEM(list, i, head);
@@ -284,10 +434,10 @@ Cons_repr(PyObject *self)
         if (repr == NULL)
             goto error;
         if (_PyUnicodeWriter_WriteStr(&writer, repr) < 0) {
-            DECREF_AND_NULLIFY(repr);
+            Py_DECREF(repr);
             goto error;
         }
-        DECREF_AND_NULLIFY(repr);
+        Py_DECREF(repr);
 
         tail = CDR(next);
         if (Py_Is(tail, state->nil))
@@ -299,10 +449,10 @@ Cons_repr(PyObject *self)
             if (repr == NULL)
                 goto error;
             if (_PyUnicodeWriter_WriteStr(&writer, repr) < 0) {
-                DECREF_AND_NULLIFY(repr);
+                Py_DECREF(repr);
                 goto error;
             }
-            DECREF_AND_NULLIFY(repr);
+            Py_DECREF(repr);
             break;
         }
         if (_PyUnicodeWriter_WriteChar(&writer, ' ') < 0)
@@ -360,9 +510,9 @@ Cons_richcompare(PyObject *self, PyObject *other, int op)
     return PyObject_RichCompare(this, that, op);
 }
 
-/* Simplified xxHash - see https://github.com/Cyan4973/xxHash/blob/master/doc/xxhash_spec.md and
-   tupleobject.c
- */
+/* Simplified xxHash - see https://github.com/Cyan4973/xxHash/blob/master/doc/xxhash_spec.md
+   and tupleobject.c
+*/
 #if SIZEOF_PY_UHASH_T > 4
 #define _PyHASH_XXPRIME_1 ((Py_uhash_t)11400714785074694791ULL)
 #define _PyHASH_XXPRIME_2 ((Py_uhash_t)14029467366897019727ULL)
@@ -381,7 +531,7 @@ Cons_hash(ConsObject *cons)
     PyObject *objs[2] = {cons->head, cons->tail};
     Py_uhash_t acc = _PyHASH_XXPRIME_5;
 
-    for (int i = 0; i < 2; i++) {
+    for (size_t i = 0; i < 2; i++) {
         Py_uhash_t lane = PyObject_Hash(objs[i]);
         if (lane == (Py_uhash_t)-1)
             return -1;
@@ -389,9 +539,9 @@ Cons_hash(ConsObject *cons)
         acc = _PyHASH_XXROTATE(acc);
         acc *= _PyHASH_XXPRIME_1;
     }
-    /* Adding the length complicates matters (do cons(1, 2) and cons(1, nil()) have the same length
-       wrt hashing?) so leave it - the xxHash spec allows length to be zero.
-     */
+    /* Adding the length complicates matters (do cons(1, 2) and cons(1, nil()) have the same
+       length wrt hashing?) so leave it - the xxHash spec allows length to be zero.
+    */
     return acc;
 }
 
@@ -403,12 +553,16 @@ static PyMemberDef Cons_members[] = {
 
 PyDoc_STRVAR(from_xs_doc, "Create a cons list from a sequence or iterable");
 PyDoc_STRVAR(to_list_doc, "Convert a proper const list to a Python list");
+PyDoc_STRVAR(lift_doc,
+             "Recursively convert a Python sequence and its sub-sequences to a conses");
 
 static PyMethodDef Cons_methods[] = {
     {"from_xs", (PyCFunction)Cons_from_xs,
      METH_METHOD | METH_FASTCALL | METH_KEYWORDS | METH_CLASS, from_xs_doc},
     {"to_list", (PyCFunction)Cons_to_list, METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
      to_list_doc},
+    {"lift", (PyCFunction)Cons_lift, METH_METHOD | METH_FASTCALL | METH_KEYWORDS | METH_CLASS,
+     lift_doc},
     {NULL},
 };
 
@@ -435,6 +589,113 @@ static PyType_Spec Cons_Type_Spec = {
     .slots = Cons_Type_Slots,
 };
 
+/* module level functions */
+PyDoc_STRVAR(consmodule_assoc_doc,
+             "assoc(object, alist)\n\
+\n\
+Return the first pair in alist whose car is equal to object. Return\n\
+nil() if object is not found.");
+
+PyObject *
+consmodule_assoc(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
+{
+    if (nargs != 2) {
+        PyErr_SetString(PyExc_TypeError, "assoc requires exactly two positional arguments");
+        return NULL;
+    }
+    PyObject *object = args[0];
+    PyObject *alist = args[1];
+
+    consmodule_state *state = PyModule_GetState(module);
+    if (state == NULL)
+        return NULL;
+
+    if (Py_Is(alist, state->nil)) {
+        Py_INCREF(state->nil);
+        return state->nil;
+    }
+    else if (!Py_IS_TYPE(alist, (PyTypeObject *)state->ConsType) || !IS_LIST(alist)) {
+        PyErr_SetString(
+            PyExc_ValueError,
+            "argument 'alist' to assoc must be a cons list of cons pairs, or nil()");
+        return NULL;
+    }
+
+    for (PyObject *pair = CAR(alist); !Py_Is(alist, state->nil);
+         alist = CDR(alist), pair = CAR(alist)) {
+        if (!Py_IS_TYPE(pair, (PyTypeObject *)state->ConsType)) {
+            PyErr_SetString(PyExc_ValueError,
+                            "'alist' is not a properly formed association list");
+            return NULL;
+        }
+        else if (PyObject_RichCompareBool(object, CAR(pair), Py_EQ)) {
+            Py_INCREF(pair);
+            return pair;
+        }
+    }
+
+    Py_INCREF(state->nil);
+    return state->nil;
+}
+
+PyDoc_STRVAR(consmodule_assp_doc,
+             "assp(predicate, alist)\n\
+\n\
+Return the first pair in alist for which the result of calling 'predicate'\n\
+on its car is truthy.\n\
+\n\
+'predicate' must be a function that takes a single argument.");
+
+PyObject *
+consmodule_assp(PyObject *module, PyObject *const *args, Py_ssize_t nargs)
+{
+    if (nargs != 2) {
+        PyErr_SetString(PyExc_TypeError, "assp requires exactly two positional arguments");
+        return NULL;
+    }
+    PyObject *predicate = args[0];
+    PyObject *alist = args[1];
+
+    consmodule_state *state = PyModule_GetState(module);
+    if (state == NULL)
+        return NULL;
+
+    if (Py_Is(alist, state->nil)) {
+        Py_INCREF(state->nil);
+        return state->nil;
+    }
+    else if (!Py_IS_TYPE(alist, (PyTypeObject *)state->ConsType) || !IS_LIST(alist)) {
+        PyErr_SetString(
+            PyExc_ValueError,
+            "argument 'alist' to assp must be a cons list of cons pairs, or nil()");
+        return NULL;
+    }
+    else if (!PyFunction_Check(predicate)) {
+        PyErr_SetString(PyExc_ValueError, "argument 'predicate' to assp must be a function");
+        return NULL;
+    }
+
+    for (PyObject *pair = CAR(alist); !Py_Is(alist, state->nil);
+         alist = CDR(alist), pair = CAR(alist)) {
+        if (!Py_IS_TYPE(pair, (PyTypeObject *)state->ConsType)) {
+            PyErr_SetString(PyExc_ValueError,
+                            "'alist' is not a properly formed association list");
+            return NULL;
+        }
+        PyObject *result = PyObject_CallOneArg(predicate, CAR(pair));
+        if (result == NULL)
+            return NULL;
+        else if (PyObject_IsTrue(result)) {
+            Py_INCREF(pair);
+            return pair;
+        }
+    }
+
+    Py_INCREF(state->nil);
+    return state->nil;
+}
+
+/* module initialisation */
 static int
 consmodule_exec(PyObject *m)
 {
@@ -454,10 +715,10 @@ consmodule_exec(PyObject *m)
     PyTuple_SET_ITEM(match_args, 1, PyUnicode_FromString("tail"));
     if (PyDict_SetItemString(((PyTypeObject *)state->ConsType)->tp_dict, "__match_args__",
                              match_args) < 0) {
-        DECREF_AND_NULLIFY(match_args);
+        Py_DECREF(match_args);
         return -1;
     }
-    DECREF_AND_NULLIFY(match_args);
+    Py_DECREF(match_args);
 
     state->NilType = PyType_FromModuleAndSpec(m, &Nil_Type_Spec, NULL);
     if (state->NilType == NULL)
@@ -496,12 +757,18 @@ consmodule_clear(PyObject *m)
     return 0;
 }
 
+static PyMethodDef consmodule_methods[] = {
+    {"assoc", (PyCFunction)consmodule_assoc, METH_FASTCALL, consmodule_assoc_doc},
+    {"assp", (PyCFunction)consmodule_assp, METH_FASTCALL, consmodule_assp_doc},
+    {NULL, NULL},
+};
+
 static struct PyModuleDef consmodule = {
     PyModuleDef_HEAD_INIT,
     .m_name = "fastcons",
     .m_doc = "Module exporting cons type",
     .m_size = sizeof(consmodule_state),
-    .m_methods = NULL,
+    .m_methods = consmodule_methods,
     .m_slots = consmodule_slots,
     .m_traverse = consmodule_traverse,
     .m_clear = consmodule_clear,

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Cons_lift` method
+- `assoc` function
+- `assp` function
+
+### Changed
+
+- Don't create intermediate tuple when calling `cons.from_xs` on a generator
+
 ## [0.3.0] - 2023-04-20
 
 ### Added

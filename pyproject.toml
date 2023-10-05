@@ -1,12 +1,20 @@
 [project]
 name = "fastcons"
-version = "0.4.0"
+version = "0.4.1"
 authors = [
     {name = "Joshua Munn", email = "public@elysee-munn.family"},
 ]
-requires-python = ">=3.11"
-description = "An efficient implementation of cons"
+requires-python = ">=3.11, <3.13"
+description = "A cons extension module for Python"
 readme = "README.md"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 
 [build-system]
 requires = ["setuptools"]

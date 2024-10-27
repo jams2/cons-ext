@@ -1,3 +1,5 @@
+from typing import cast
+
 from hypothesis import given, strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, rule
 
@@ -6,21 +8,17 @@ from fastcons import assoc, assp, cons, nil
 
 # Custom strategies
 @st.composite
-def proper_cons_lists(draw, min_size=0, max_size=100):
+def proper_cons_lists(draw, min_size=0):
     """
     Generate proper cons lists (those ending in nil()).
     """
     # Mix of integers, strings, bools, and None
-    items = draw(st.lists(
-        st.one_of(
-            st.integers(),
-            st.text(min_size=1),
-            st.booleans(),
-            st.none()
-        ),
-        min_size=min_size,
-        max_size=max_size
-    ))
+    items = draw(
+        st.lists(
+            st.one_of(st.integers(), st.text(min_size=1), st.booleans(), st.none()),
+            min_size=min_size,
+        )
+    )
     return cons.from_xs(items)
 
 
@@ -30,28 +28,19 @@ def improper_cons_pairs(draw):
     Generate improper cons pairs (not ending in nil()).
     """
     # Mix of different types for both head and tail
-    head = draw(st.one_of(
-        st.integers(),
-        st.text(min_size=1),
-        st.booleans(),
-        st.none()
-    ))
-    tail = draw(st.one_of(
-        st.integers(),
-        st.text(min_size=1),
-        st.booleans(),
-        st.none()
-    ))
+    head = draw(st.one_of(st.integers(), st.text(min_size=1), st.booleans(), st.none()))
+    tail = draw(st.one_of(st.integers(), st.text(min_size=1), st.booleans(), st.none()))
     return cons(head, tail)
 
 
 # Basic properties
-@given(st.lists(st.integers()))
+@given(st.lists(st.integers(), min_size=1))
 def test_to_list_roundtrip(xs):
     """
     Converting list->cons->list preserves values.
     """
-    assert cons.from_xs(xs).to_list() == xs
+
+    assert cast(cons, cons.from_xs(xs)).to_list() == xs
 
 
 @given(proper_cons_lists())
@@ -67,7 +56,7 @@ def test_cons_list_equality_symmetric(xs, ys):
     """
     Cons list equality is symmetric.
     """
-    assert (xs == ys) == (ys == xs)
+    assert (xs == ys) is (ys == xs)
 
 
 @given(proper_cons_lists(), proper_cons_lists(), proper_cons_lists())

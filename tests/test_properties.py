@@ -10,7 +10,17 @@ def proper_cons_lists(draw, min_size=0, max_size=100):
     """
     Generate proper cons lists (those ending in nil()).
     """
-    items = draw(st.lists(st.integers(), min_size=min_size, max_size=max_size))
+    # Mix of integers, strings, bools, and None
+    items = draw(st.lists(
+        st.one_of(
+            st.integers(),
+            st.text(min_size=1),
+            st.booleans(),
+            st.none()
+        ),
+        min_size=min_size,
+        max_size=max_size
+    ))
     return cons.from_xs(items)
 
 
@@ -19,8 +29,19 @@ def improper_cons_pairs(draw):
     """
     Generate improper cons pairs (not ending in nil()).
     """
-    head = draw(st.integers())
-    tail = draw(st.integers())
+    # Mix of different types for both head and tail
+    head = draw(st.one_of(
+        st.integers(),
+        st.text(min_size=1),
+        st.booleans(),
+        st.none()
+    ))
+    tail = draw(st.one_of(
+        st.integers(),
+        st.text(min_size=1),
+        st.booleans(),
+        st.none()
+    ))
     return cons(head, tail)
 
 

@@ -6,7 +6,7 @@ from fastcons import nil
 
 def test_nil_takes_no_args():
     with pytest.raises(TypeError):
-        nil(1)
+        nil(1)  # type: ignore
 
 
 def test_nil_is_nil():
@@ -20,7 +20,7 @@ def test_nil_eq_nil():
 @pytest.mark.xfail
 def test_identity_preserved_across_imports():
     sys.modules.pop("fastcons")
-    import fastcons             # type: ignore
+    import fastcons  # type: ignore
 
     x = nil()
     sys.modules.pop("fastcons")

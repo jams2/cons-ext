@@ -17,10 +17,10 @@ def test_nil_eq_nil():
     assert nil() == nil()
 
 
-@pytest.mark.xfail()
+@pytest.mark.xfail
 def test_identity_preserved_across_imports():
     sys.modules.pop("fastcons")
-    import fastcons
+    import fastcons             # type: ignore
 
     x = nil()
     sys.modules.pop("fastcons")

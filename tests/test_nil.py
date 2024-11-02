@@ -1,3 +1,6 @@
+import gc
+import weakref
+
 import pytest
 from fastcons import nil
 
@@ -37,3 +40,18 @@ def test_nil_to_list_new_object():
     lst2 = nil().to_list()
     assert lst1 == lst2
     assert lst1 is not lst2
+
+
+def test_weakref():
+    """
+    nil supports weakrefs.
+
+    Although not particularly useful, as it's a singleton object, it
+    should be part of the interface for common behaviour with cons.
+    """
+    x = nil()
+    ref = weakref.ref(x)
+    assert ref() is nil()
+    del x
+    gc.collect()
+    assert nil() is nil()

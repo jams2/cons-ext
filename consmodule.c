@@ -90,20 +90,30 @@ PyDoc_STRVAR(Nil_doc, "Get the singleton nil object");
 PyDoc_STRVAR(Nil_to_list_doc, "Convert nil to an empty Python list");
 
 static PyMethodDef Nil_methods[] = {
-    {"to_list", (PyCFunction)Nil_to_list, METH_METHOD|METH_FASTCALL|METH_KEYWORDS, Nil_to_list_doc},
-    {NULL, NULL}
-};
+    {"to_list", (PyCFunction)Nil_to_list, METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+     Nil_to_list_doc},
+    {NULL, NULL}};
+
+static void
+Nil_dealloc(NilObject *self)
+{
+    if (self != NULL) {
+        PyObject_ClearWeakRefs((PyObject *)self);
+        Py_TYPE(self)->tp_free(self);
+    }
+}
 
 static PyType_Slot Nil_Type_Slots[] = {
-    {Py_tp_doc, (void *)Nil_doc},   {Py_tp_new, Nil_new},   {Py_tp_repr, Nil_repr},
-    {Py_tp_traverse, Nil_traverse}, {Py_nb_bool, Nil_bool}, {Py_tp_methods, Nil_methods},
-    {0, NULL},
+    {Py_tp_doc, (void *)Nil_doc}, {Py_tp_new, Nil_new},
+    {Py_tp_repr, Nil_repr},       {Py_tp_traverse, Nil_traverse},
+    {Py_nb_bool, Nil_bool},       {Py_tp_methods, Nil_methods},
+    {Py_tp_dealloc, Nil_dealloc}, {0, NULL},
 };
 
 static PyType_Spec Nil_Type_Spec = {
     .name = "fastcons.nil",
     .basicsize = sizeof(NilObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_MANAGED_WEAKREF,
     .slots = Nil_Type_Slots,
 };
 
@@ -748,6 +758,9 @@ consmodule_exec(PyObject *m)
 
     PyObject *nil =
         ((PyTypeObject *)state->NilType)->tp_alloc((PyTypeObject *)state->NilType, 0);
+    if (nil != NULL) {
+        PyObject_GC_Track(nil);
+    }
     state->nil = nil;
     return 0;
 }

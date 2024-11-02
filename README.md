@@ -4,7 +4,7 @@ Fastcons is a Python extension module that aims to provide an efficient implemen
 
 The fastcons module provides two types: `nil` and `cons`. The `nil` type represents the empty list, while the cons type represents a pair - an immutable cell containing two elements.
 
-Currently requires Python 3.11, and Linux or MacOS.
+Currently requires Python 3.12, and Linux or MacOS.
 
 * [Installation](#installation)
 * [Usage](#usage)

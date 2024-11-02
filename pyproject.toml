@@ -4,7 +4,7 @@ version = "0.4.1"
 authors = [
     {name = "Joshua Munn", email = "public@elysee-munn.family"},
 ]
-requires-python = ">=3.11, <3.13"
+requires-python = ">=3.12, <3.14"
 description = "A cons extension module for Python"
 readme = "README.md"
 classifiers = [
@@ -12,8 +12,8 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 
 [build-system]
@@ -29,13 +29,21 @@ test = [
     "hypothesis >= 6, < 7",
 ]
 dev = [
-    "ruff == 0.7.1",
+    "ruff == 0.7.2",
     "pyright == 1.1.386",
 ]
 build = ["build == 0.10.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore:ast.Str is deprecated:DeprecationWarning",
+    "ignore:ast.NameConstant is deprecated:DeprecationWarning",
+    "ignore:Attribute s is deprecated:DeprecationWarning",
+    "ignore:ast.Num is deprecated:DeprecationWarning",
+    "ignore:TestResult has no addDuration method:RuntimeWarning",
+]
+
 
 [tool.ruff]
 line-length = 88

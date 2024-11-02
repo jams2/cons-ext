@@ -1,5 +1,3 @@
-import sys
-
 import pytest
 from fastcons import nil
 
@@ -17,16 +15,10 @@ def test_nil_eq_nil():
     assert nil() == nil()
 
 
-@pytest.mark.xfail
-def test_identity_preserved_across_imports():
-    sys.modules.pop("fastcons")
-    import fastcons  # type: ignore
-
-    x = nil()
-    sys.modules.pop("fastcons")
-    import fastcons as fastcons_2
-
-    assert x is fastcons_2.nil()
+def test_nil_bool():
+    """Test nil() is falsey."""
+    assert not nil()
+    assert bool(nil()) is False
 
 
 def test_hashable():

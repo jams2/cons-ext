@@ -1,4 +1,6 @@
+import gc
 import operator
+import weakref
 from collections import namedtuple
 
 import pytest
@@ -22,6 +24,13 @@ def test_create():
     pair = cons(1, 2)
     assert pair.head == 1
     assert pair.tail == 2
+
+
+def test_cons_none():
+    """Test cons cells can store None."""
+    c = cons(None, nil())
+    assert c.head is None
+    assert c.tail is nil()
 
 
 @pytest.mark.parametrize(
@@ -321,3 +330,59 @@ def test_lift_tuples(xs, expected):
 )
 def test_lift_nested(xs, expected):
     assert repr(cons.lift(xs)) == expected
+
+
+def test_cons_weak_references():
+    """Test weak references to cons cells work correctly."""
+    c = cons(1, nil())
+    w = weakref.ref(c)
+    assert w() is c
+
+    del c
+    gc.collect()
+    assert w() is None
+
+
+def test_cons_weak_references_nested():
+    """Test weak references to nested cons cells work correctly."""
+    c1 = cons(1, nil())
+    c3 = cons(3, cons(2, c1))
+
+    w1 = weakref.ref(c1)
+    w2 = weakref.ref(c3.tail)
+    w3 = weakref.ref(c3)
+
+    assert w1() is c1
+    assert w2() is c3.tail
+    assert w3() is c3
+
+    del c3
+    gc.collect()
+    assert w3() is None
+    assert w2() is None
+
+
+def test_cons_invalid_operations():
+    """Test invalid operations raise appropriate exceptions."""
+    c = cons(1, nil())
+
+    with pytest.raises(AttributeError):
+        c.invalid_attr
+
+    with pytest.raises(TypeError):
+        len(c)
+
+    with pytest.raises(TypeError):
+        c + 1
+
+
+def test_cons_type_mixing():
+    """Test mixing different types in cons cells."""
+    mixed = cons(1, cons("string", cons(3.14, cons(None, cons(True, nil())))))
+
+    assert mixed.head == 1
+    assert mixed.tail.head == "string"
+    assert mixed.tail.tail.head == 3.14
+    assert mixed.tail.tail.tail.head is None
+    assert mixed.tail.tail.tail.tail.head is True
+    assert mixed.tail.tail.tail.tail.tail is nil()

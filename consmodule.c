@@ -150,6 +150,7 @@ Cons_clear(PyObject *self)
 void
 Cons_dealloc(ConsObject *self)
 {
+    PyObject_ClearWeakRefs((PyObject *)self);
     PyObject_GC_UnTrack(self);
     Py_TRASHCAN_BEGIN(self, Cons_dealloc);
     Cons_clear((PyObject *)self);
@@ -585,7 +586,8 @@ static PyType_Slot Cons_Type_Slots[] = {
 static PyType_Spec Cons_Type_Spec = {
     .name = "fastcons.cons",
     .basicsize = sizeof(ConsObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HAVE_GC,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HAVE_GC |
+             Py_TPFLAGS_MANAGED_WEAKREF,
     .slots = Cons_Type_Slots,
 };
 

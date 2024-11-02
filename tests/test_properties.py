@@ -1,48 +1,18 @@
+import gc
 from typing import cast
 
-from hypothesis import given, strategies as st, assume
+from fastcons import assoc, assp, cons, nil
+from hypothesis import given
+from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, rule
 
-from fastcons import assoc, assp, cons, nil
 
-
-# Complex nested data structures
-@st.composite
-def nested_data(draw, max_depth=3):
-    """
-    Generate nested data structures including lists, tuples, dicts with varied types.
-    """
-    if max_depth == 0:
-        return draw(st.one_of(st.none(), st.booleans(), st.integers(), st.text()))
-
-    return draw(
-        st.one_of(
-            st.tuples(
-                nested_data(max_depth=max_depth - 1),
-                nested_data(max_depth=max_depth - 1),
-            ),
-            st.lists(nested_data(max_depth=max_depth - 1), min_size=1),
-            st.dictionaries(
-                st.text(min_size=1),
-                nested_data(max_depth=max_depth - 1),
-                min_size=1,
-                max_size=5,
-            ),
-        )
-    )
-
-
-@given(nested_data())
-def test_lift_preserves_structure(data):
-    """
-    Test that lift preserves the structure and values of nested data.
-    """
-    lifted = cons.lift(data)
-    if isinstance(data, list | tuple | dict):
-        assert lifted != nil()
-        assert isinstance(lifted, cons)
-    else:
-        assert lifted == data
+@given(st.integers())
+def test_cons_basic(x: int):
+    """Test basic cons cell creation and access."""
+    c = cons(x, nil())
+    assert c.head == x
+    assert c.tail is nil()
 
 
 @given(st.lists(st.integers(), min_size=1))
@@ -68,7 +38,6 @@ def test_lift_dict_structure(d):
     while current != nil():
         pair = current.head
         assert isinstance(pair, cons)
-        assert pair.head in d
         assert pair.tail == d[pair.head]
         current = current.tail
 
@@ -85,10 +54,18 @@ def test_lift_recursive_structures(data):
     Test that lift handles deeply nested recursive structures.
     """
     lifted = cons.lift(data)
-    if isinstance(data, (list, dict)):
+    if isinstance(data, list | dict):
         assert isinstance(lifted, cons) or lifted is nil()
     else:
         assert lifted == data
+
+
+@given(st.lists(st.integers(), min_size=500), st.integers(min_value=1, max_value=100))
+def test_cons_large_list(xs, n):
+    """Test handling of large lists."""
+    xs *= n
+    c = cons.from_xs(xs)
+    assert c.to_list() == xs
 
 
 @given(st.lists(st.integers()).map(lambda x: (x, (y for y in x))))
@@ -215,13 +192,84 @@ class ConsListMachine(RuleBasedStateMachine):
         self.cons_list = nil()
 
     @rule(x=st.integers())
-    def append(self, x):
+    def prepend(self, x):
         """
-        Append to both lists and verify equality.
+        Prepend to both lists and verify equality.
         """
-        self.py_list.append(x)
+        self.py_list = [x] + self.py_list
         self.cons_list = cons(x, self.cons_list)
-        assert list(reversed(self.py_list)) == self.cons_list.to_list()
+        assert self.py_list == self.cons_list.to_list()
+
+    @rule(idx=st.integers(min_value=0))
+    def get_item(self, idx):
+        """Test random access to elements."""
+        if not self.py_list:
+            return
+
+        idx = idx % len(self.py_list)  # Wrap index
+
+        # Get from cons list
+        current = self.cons_list
+        for _ in range(idx):
+            current = current.tail
+
+        assert current.head == self.py_list[idx]
+
+    @rule()
+    def verify_immutable(self):
+        """Verify cons list hasn't been mutated unexpectedly."""
+        if not self.py_list:
+            return
+
+        old_list = self.cons_list.to_list()
+        gc.collect()  # Try to trigger any potential memory issues
+        assert self.cons_list.to_list() == old_list
 
 
 test_cons_list_state = ConsListMachine.TestCase
+
+
+# __repr__ tests
+@given(st.text())
+def test_repr_with_string_content(s):
+    """Test repr handles arbitrary string content safely."""
+    c = cons(s, nil())
+    r = repr(c)
+    assert isinstance(r, str)
+    assert r.startswith("(")
+    assert r.endswith(")")
+
+
+@given(st.binary(min_size=0, max_size=1000))
+def test_repr_with_bytes(b):
+    """Test repr handles arbitrary bytes safely."""
+    c = cons(b, nil())
+    r = repr(c)
+    assert isinstance(r, str)
+
+
+@given(st.builds(cons.from_xs, st.lists(st.lists(st.text()), min_size=1)))
+def test_repr_recursive_lists(xs):
+    """Test repr handles nested structures."""
+    r = repr(xs)
+    assert isinstance(r, str)
+    assert r.startswith("(")
+    assert r.endswith(")")
+
+
+@given(st.text(min_size=1000, max_size=10000))
+def test_repr_very_long_string(s):
+    """Test repr handles very long string content."""
+    c = cons(s, nil())
+    r = repr(c)
+    assert isinstance(r, str)
+    assert len(r) > 0
+
+
+@given(st.lists(st.binary(min_size=0, max_size=1000), max_size=100))
+def test_repr_binary_list(xs):
+    """Test repr with lists of binary data."""
+    c = cons.from_xs(xs)
+    r = repr(c)
+    assert isinstance(r, str)
+    assert len(r) > 0

@@ -1,4 +1,5 @@
 import gc
+import weakref
 from typing import cast
 
 from fastcons import assoc, assp, cons, nil
@@ -182,6 +183,17 @@ def test_assp_finds_first_match(target, pairs):
         assert result.head == target
         idx = next(i for i, (k, _) in enumerate(pairs) if k == target)
         assert result.tail == pairs[idx][1]
+
+
+@given(st.lists(st.integers()))
+def test_from_xs_gc(lst):
+    # Create some garbage first to increase GC pressure
+    garbage = [cons(i, nil()) for i in range(1000)]
+    result = cons.from_xs(lst)
+    del garbage
+    gc.collect()
+    # Convert back to list to verify
+    assert result.to_list() == lst
 
 
 # State machine for testing cons list operations

@@ -1,6 +1,6 @@
 [project]
 name = "fastcons"
-version = "0.4.1"
+version = "0.5.0"
 authors = [
     {name = "Joshua Munn", email = "public@elysee-munn.family"},
 ]

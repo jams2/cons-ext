@@ -1,4 +1,5 @@
 import gc
+import threading
 import weakref
 
 import pytest
@@ -55,3 +56,38 @@ def test_weakref():
     del x
     gc.collect()
     assert nil() is nil()
+
+
+def test_nil_weakref_thread_safety():
+    """
+    Test that we can create weakrefs to nil() from multiple threads.
+
+    It's a singleton object, so needs more careful handling than the cons object.
+    """
+
+    errors = []
+    n_threads = 10
+
+    def worker():
+        try:
+            # Create and immediately drop a weakref to nil()
+            weakref.ref(nil())
+        except Exception as e:
+            errors.append(e)
+
+        try:
+            x = weakref.ref(nil())
+            del x
+            gc.collect()
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+
+    for t in threads:
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    assert not errors, f"Threads encountered errors: {errors}"

@@ -1,5 +1,4 @@
 import gc
-import weakref
 from typing import cast
 
 from fastcons import assoc, assp, cons, nil

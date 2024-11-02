@@ -132,29 +132,36 @@ Cons_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         return NULL;
     PyTypeObject *cons_type = (PyTypeObject *)state->ConsType;
 
+    PyObject *head = NULL, *tail = NULL;
+    static char *kwlist[] = {"head", "tail", NULL};
+
+    // Parse arguments BEFORE allocating the object, so we don't need
+    // to decref etc. if this fails.
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail))
+        return NULL;
+
+    // Now allocate the object
     ConsObject *self = Cons_NEW(cons_type);
     if (self == NULL)
         return NULL;
 
-    static char *kwlist[] = {"head", "tail", NULL};
-    PyObject *head = NULL, *tail = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail))
-        /* Don't decref - it will trigger GC, which will cause a segfault as self isn't tracked
-         * yet */
-        return NULL;
+    // Initialize fields
+    self->head = NULL;
+    self->tail = NULL;
+    self->is_list = false;
+
+    PyObject_GC_Track(self);
 
     if (Py_Is(tail, state->nil))
         self->is_list = true;
     else if (Py_IS_TYPE(tail, cons_type))
         self->is_list = IS_LIST(tail);
-    else
-        self->is_list = false;
 
     Py_INCREF(head);
     self->head = head;
     Py_INCREF(tail);
     self->tail = tail;
-    PyObject_GC_Track(self);
+
     return (PyObject *)self;
 };
 

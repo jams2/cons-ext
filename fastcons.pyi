@@ -2,7 +2,7 @@ from collections.abc import Callable, Iterable
 from typing import Any, Self
 
 class nil:
-    pass
+    def to_list(self) -> list[Any]: ...
 
 class cons:
     head: Any

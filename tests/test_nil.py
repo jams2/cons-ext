@@ -24,3 +24,16 @@ def test_nil_bool():
 def test_hashable():
     d = {nil(): "hello"}
     assert nil() in d
+
+
+def test_nil_to_list():
+    """Test nil().to_list() returns an empty list."""
+    assert nil().to_list() == []
+
+
+def test_nil_to_list_new_object():
+    """Test nil().to_list() returns a new list each time."""
+    lst1 = nil().to_list()
+    lst2 = nil().to_list()
+    assert lst1 == lst2
+    assert lst1 is not lst2

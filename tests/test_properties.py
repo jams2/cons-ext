@@ -160,7 +160,7 @@ def test_assoc_finds_first_match(key, pairs):
     alist = cons.from_xs([cons(k, v) for k, v in pairs])
     result = assoc(key, alist)
 
-    if result is nil():
+    if isinstance(result, nil):
         assert all(k != key for k, _ in pairs)
     else:
         assert result.head == key
@@ -176,7 +176,7 @@ def test_assp_finds_first_match(target, pairs):
     alist = cons.from_xs([cons(k, v) for k, v in pairs])
     result = assp(lambda x: x == target, alist)
 
-    if result is nil():
+    if isinstance(result, nil):
         assert all(k != target for k, _ in pairs)
     else:
         assert result.head == target
@@ -203,7 +203,7 @@ class ConsListMachine(RuleBasedStateMachine):
     @rule(idx=st.integers(min_value=0))
     def get_item(self, idx):
         """Test random access to elements."""
-        if not self.py_list:
+        if isinstance(self.cons_list, nil):
             return
 
         idx = idx % len(self.py_list)  # Wrap index
@@ -218,9 +218,6 @@ class ConsListMachine(RuleBasedStateMachine):
     @rule()
     def verify_immutable(self):
         """Verify cons list hasn't been mutated unexpectedly."""
-        if not self.py_list:
-            return
-
         old_list = self.cons_list.to_list()
         gc.collect()  # Try to trigger any potential memory issues
         assert self.cons_list.to_list() == old_list

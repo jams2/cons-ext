@@ -75,11 +75,29 @@ Nil_bool(PyObject *self)
     return 0;
 }
 
+static PyObject *
+Nil_to_list(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+            Py_ssize_t nargs, PyObject *kwnames)
+{
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError, "expected zero arguments");
+        return NULL;
+    }
+    return PyList_New(0);
+}
+
 PyDoc_STRVAR(Nil_doc, "Get the singleton nil object");
+PyDoc_STRVAR(Nil_to_list_doc, "Convert nil to an empty Python list");
+
+static PyMethodDef Nil_methods[] = {
+    {"to_list", (PyCFunction)Nil_to_list, METH_METHOD|METH_FASTCALL|METH_KEYWORDS, Nil_to_list_doc},
+    {NULL, NULL}
+};
 
 static PyType_Slot Nil_Type_Slots[] = {
     {Py_tp_doc, (void *)Nil_doc},   {Py_tp_new, Nil_new},   {Py_tp_repr, Nil_repr},
-    {Py_tp_traverse, Nil_traverse}, {Py_nb_bool, Nil_bool}, {0, NULL},
+    {Py_tp_traverse, Nil_traverse}, {Py_nb_bool, Nil_bool}, {Py_tp_methods, Nil_methods},
+    {0, NULL},
 };
 
 static PyType_Spec Nil_Type_Spec = {

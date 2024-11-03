@@ -75,11 +75,33 @@ Nil_bool(PyObject *self)
     return 0;
 }
 
+static PyObject *
+Nil_to_list(PyObject *self, PyTypeObject *defining_class, PyObject *const *args,
+            Py_ssize_t nargs, PyObject *kwnames)
+{
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError, "expected zero arguments");
+        return NULL;
+    }
+    return PyList_New(0);
+}
+
 PyDoc_STRVAR(Nil_doc, "Get the singleton nil object");
+PyDoc_STRVAR(Nil_to_list_doc, "Convert nil to an empty Python list");
+
+static PyMethodDef Nil_methods[] = {
+    {"to_list", (PyCFunction)Nil_to_list, METH_METHOD | METH_FASTCALL | METH_KEYWORDS,
+     Nil_to_list_doc},
+    {NULL, NULL}};
 
 static PyType_Slot Nil_Type_Slots[] = {
-    {Py_tp_doc, (void *)Nil_doc},   {Py_tp_new, Nil_new},   {Py_tp_repr, Nil_repr},
-    {Py_tp_traverse, Nil_traverse}, {Py_nb_bool, Nil_bool}, {0, NULL},
+    {Py_tp_doc, (void *)Nil_doc},
+    {Py_tp_new, Nil_new},
+    {Py_tp_repr, Nil_repr},
+    {Py_tp_traverse, Nil_traverse},
+    {Py_nb_bool, Nil_bool},
+    {Py_tp_methods, Nil_methods},
+    {0, NULL},
 };
 
 static PyType_Spec Nil_Type_Spec = {
@@ -104,29 +126,36 @@ Cons_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         return NULL;
     PyTypeObject *cons_type = (PyTypeObject *)state->ConsType;
 
+    PyObject *head = NULL, *tail = NULL;
+    static char *kwlist[] = {"head", "tail", NULL};
+
+    // Parse arguments BEFORE allocating the object, so we don't need
+    // to decref etc. if this fails.
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail))
+        return NULL;
+
+    // Now allocate the object
     ConsObject *self = Cons_NEW(cons_type);
     if (self == NULL)
         return NULL;
 
-    static char *kwlist[] = {"head", "tail", NULL};
-    PyObject *head = NULL, *tail = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO", kwlist, &head, &tail))
-        /* Don't decref - it will trigger GC, which will cause a segfault as self isn't tracked
-         * yet */
-        return NULL;
+    // Initialize fields
+    self->head = NULL;
+    self->tail = NULL;
+    self->is_list = false;
+
+    PyObject_GC_Track(self);
 
     if (Py_Is(tail, state->nil))
         self->is_list = true;
     else if (Py_IS_TYPE(tail, cons_type))
         self->is_list = IS_LIST(tail);
-    else
-        self->is_list = false;
 
     Py_INCREF(head);
     self->head = head;
     Py_INCREF(tail);
     self->tail = tail;
-    PyObject_GC_Track(self);
+
     return (PyObject *)self;
 };
 
@@ -150,6 +179,7 @@ Cons_clear(PyObject *self)
 void
 Cons_dealloc(ConsObject *self)
 {
+    PyObject_ClearWeakRefs((PyObject *)self);
     PyObject_GC_UnTrack(self);
     Py_TRASHCAN_BEGIN(self, Cons_dealloc);
     Cons_clear((PyObject *)self);
@@ -585,7 +615,8 @@ static PyType_Slot Cons_Type_Slots[] = {
 static PyType_Spec Cons_Type_Spec = {
     .name = "fastcons.cons",
     .basicsize = sizeof(ConsObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HAVE_GC,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_HAVE_GC |
+             Py_TPFLAGS_MANAGED_WEAKREF,
     .slots = Cons_Type_Slots,
 };
 
@@ -728,6 +759,7 @@ consmodule_exec(PyObject *m)
 
     PyObject *nil =
         ((PyTypeObject *)state->NilType)->tp_alloc((PyTypeObject *)state->NilType, 0);
+
     state->nil = nil;
     return 0;
 }

@@ -20,7 +20,7 @@ if DEBUG:
     extra_compile_args += [
         "-g3",
         "-O0",
-        "-DDEBUG=%s" % DEBUG_LEVEL,
+        f"-DDEBUG={DEBUG_LEVEL}",
         "-UNDEBUG",
         "-fanalyzer",
     ]

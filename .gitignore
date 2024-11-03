@@ -164,3 +164,4 @@ cython_debug/
 .gdb_history
 measure.py
 repr.py
+.aider*
